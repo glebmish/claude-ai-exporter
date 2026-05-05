@@ -112,4 +112,22 @@ describe("sanitizeForFilename", () => {
   it("returns empty string for empty input", () => {
     assert.equal(sanitizeForFilename(""), "");
   });
+
+  it("folds em/en dashes and arrows to ASCII hyphen", () => {
+    assert.equal(sanitizeForFilename("a — b"), "a - b");
+    assert.equal(sanitizeForFilename("v1 → v2"), "v1 - v2");
+    assert.equal(sanitizeForFilename("a – b"), "a - b");
+  });
+
+  it("folds smart quotes and apostrophes to ASCII", () => {
+    assert.equal(sanitizeForFilename("User’s notes"), "User's notes");
+  });
+
+  it("folds horizontal ellipsis to three dots", () => {
+    assert.equal(sanitizeForFilename("hmm…"), "hmm...");
+  });
+
+  it("preserves regular non-ASCII letters", () => {
+    assert.equal(sanitizeForFilename("Москва"), "Москва");
+  });
 });

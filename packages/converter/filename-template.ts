@@ -20,8 +20,34 @@
 const VARIABLE_RE = /\{\{(\w+)\}\}/g;
 const UNSAFE_CHARS = /[<>:"/\\|?*\x00-\x1f]/g;
 
+// Common typographic Unicode characters get folded to ASCII so filenames stay
+// shell- and cross-platform-friendly without losing legible content. Other
+// non-ASCII characters (e.g. Cyrillic, CJK) pass through untouched.
+const TYPOGRAPHIC_FOLD: Record<string, string> = {
+  "—": "-",   // em dash
+  "–": "-",   // en dash
+  "→": "-",   // rightwards arrow
+  "←": "-",   // leftwards arrow
+  "…": "...", // horizontal ellipsis
+  "“": '"',   // left double quote
+  "”": '"',   // right double quote
+  "‘": "'",   // left single quote
+  "’": "'",   // right single quote / smart apostrophe
+};
+
+function foldTypography(s: string): string {
+  let out = s;
+  for (const [k, v] of Object.entries(TYPOGRAPHIC_FOLD)) {
+    if (out.includes(k)) out = out.split(k).join(v);
+  }
+  return out;
+}
+
 export function sanitizeForFilename(s: string): string {
-  return s.replace(UNSAFE_CHARS, "").replace(/\s+/g, " ").trim();
+  return foldTypography(s)
+    .replace(UNSAFE_CHARS, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function applyFilenameTemplate(
