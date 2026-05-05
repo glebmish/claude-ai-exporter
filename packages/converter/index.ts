@@ -5,11 +5,11 @@
 
 import type { Message, MessageBlock, BuildMarkdownOptions, BuildMarkdownContext, BuildMarkdownResult, ConversationResult, RenderedMessage, ArtifactFile, ConversationData, Citation, EnrichmentInput, EnrichmentMessage, EnrichmentBlock, ImageMeta } from "./types.ts";
 import { getFormatter } from "./formatters.ts";
-import { applyFilenameTemplate, DEFAULT_CHAT_NAME_TEMPLATE, DEFAULT_ARTIFACT_NAME_TEMPLATE } from "./filename-template.ts";
+import { applyFilenameTemplate, sanitizeForFilename, DEFAULT_CHAT_NAME_TEMPLATE, DEFAULT_ARTIFACT_NAME_TEMPLATE } from "./filename-template.ts";
 
 export * from "./types.ts";
 export { getFormatter } from "./formatters.ts";
-export { applyFilenameTemplate, DEFAULT_CHAT_NAME_TEMPLATE, DEFAULT_ARTIFACT_NAME_TEMPLATE } from "./filename-template.ts";
+export { applyFilenameTemplate, sanitizeForFilename, DEFAULT_CHAT_NAME_TEMPLATE, DEFAULT_ARTIFACT_NAME_TEMPLATE } from "./filename-template.ts";
 
 // MIME type → file extension mapping
 export const MIME_TO_EXT: Record<string, string> = {
@@ -199,7 +199,7 @@ function extractFirstHeading(content: string): string | null {
 export function processArtifacts(
   messages: Message[],
   artifactNameTemplate: string = DEFAULT_ARTIFACT_NAME_TEMPLATE,
-  chatVars: { chatTitle: string; chatCreated: string } = { chatTitle: "", chatCreated: "" },
+  chatVars: { chatTitle: string; chatTitleSanitized: string; chatCreated: string } = { chatTitle: "", chatTitleSanitized: "", chatCreated: "" },
 ): ProcessedArtifacts {
   const artifacts = new Map<string, ArtifactInternal>();
   const pathToArtifactId = new Map<string, string>();
@@ -278,8 +278,10 @@ export function processArtifacts(
     const ext = getExtFromMime(art.type);
     const base = applyFilenameTemplate(artifactNameTemplate, {
       seqNum: String(art.seqNum).padStart(2, "0"),
-      title: sanitizeFilename(art.title),
+      title: sanitizeForFilename(art.title),
+      titleSanitized: sanitizeFilename(art.title),
       chatTitle: chatVars.chatTitle,
+      chatTitleSanitized: chatVars.chatTitleSanitized,
       chatCreated: chatVars.chatCreated,
     });
     const filename = `${base}${ext}`;
@@ -464,12 +466,13 @@ export function parseConversation(
   const rawMessages = data.chat_messages || [];
   const title = (data.name || "Claude Conversation").replace(/\s*\^archived$/i, "");
   const model = data.model || "unknown";
+  const chatTitleMinimal = sanitizeForFilename(title);
   const chatTitleSanitized = sanitizeConversationTitle(data.name);
   const chatCreatedDate = formatDatePrefix(data.created_at);
   const artifactNameTemplate = context.artifactNameTemplate ?? DEFAULT_ARTIFACT_NAME_TEMPLATE;
   const chatNameTemplate = context.chatNameTemplate ?? DEFAULT_CHAT_NAME_TEMPLATE;
   const processed = options.includeArtifacts !== false
-    ? processArtifacts(rawMessages, artifactNameTemplate, { chatTitle: chatTitleSanitized, chatCreated: chatCreatedDate })
+    ? processArtifacts(rawMessages, artifactNameTemplate, { chatTitle: chatTitleMinimal, chatTitleSanitized, chatCreated: chatCreatedDate })
     : { artifacts: new Map<string, ArtifactInternal & { filename: string }>(), pathToArtifactId: new Map<string, string>() };
   const artifacts = processed.artifacts;
   const pathToArtifactId = processed.pathToArtifactId;
@@ -482,7 +485,8 @@ export function parseConversation(
   // Compute datedTitle early so artifactLinkPrefix can be derived from it
   const exportedDate = new Date().toISOString().substring(0, 10);
   const datedTitle = applyFilenameTemplate(chatNameTemplate, {
-    title: chatTitleSanitized,
+    title: chatTitleMinimal,
+    titleSanitized: chatTitleSanitized,
     created: chatCreatedDate,
     updated: formatDatePrefix(data.updated_at),
     exported: exportedDate,

@@ -41,26 +41,26 @@ export class ClaudeExporterSettingsTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Chat file name")
-      .setDesc("Template for the chat note filename (no extension). Variables: {{title}}, {{created}}, {{updated}}, {{exported}}, {{model}}, {{messages}}, {{artifacts}}")
+      .setDesc("Template for the chat note filename (no extension). Variables: {{title}} (case + spaces preserved), {{titleSanitized}} (lowercased + underscored), {{created}}, {{updated}}, {{exported}}, {{model}}, {{messages}}, {{artifacts}}")
       .addText((text) =>
         text
-          .setPlaceholder("{{created}}_{{title}}")
+          .setPlaceholder("{{created}} {{title}}")
           .setValue(this.plugin.settings.chatNameTemplate)
           .onChange(async (value) => {
-            this.plugin.settings.chatNameTemplate = value || "{{created}}_{{title}}";
+            this.plugin.settings.chatNameTemplate = value || "{{created}} {{title}}";
             await this.plugin.saveSettings();
           })
       );
 
     new Setting(containerEl)
       .setName("Artifact file name")
-      .setDesc("Template for artifact filenames (no extension). Variables: {{seqNum}}, {{title}}, {{chatTitle}}, {{chatCreated}}")
+      .setDesc("Template for artifact filenames (no extension). Variables: {{seqNum}}, {{title}}, {{titleSanitized}}, {{chatTitle}}, {{chatTitleSanitized}}, {{chatCreated}}")
       .addText((text) =>
         text
-          .setPlaceholder("{{seqNum}}_{{title}}")
+          .setPlaceholder("{{seqNum}} {{title}}")
           .setValue(this.plugin.settings.artifactNameTemplate)
           .onChange(async (value) => {
-            this.plugin.settings.artifactNameTemplate = value || "{{seqNum}}_{{title}}";
+            this.plugin.settings.artifactNameTemplate = value || "{{seqNum}} {{title}}";
             await this.plugin.saveSettings();
           })
       );

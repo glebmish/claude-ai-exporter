@@ -71,8 +71,8 @@ Flags:
 | `--toc-recap` | TOC with per-topic recap |
 | `--topics` | Generate a key-topics list |
 | `--existing <file>` | Merge into an existing export; only new messages are rendered |
-| `--chat-name <tpl>` | Filename template for the chat note (default `{{created}}_{{title}}`) — see "Filename templates" below |
-| `--artifact-name <tpl>` | Filename template for artifacts (default `{{seqNum}}_{{title}}`) |
+| `--chat-name <tpl>` | Filename template for the chat note (default `{{created}} {{title}}`) — see "Filename templates" below |
+| `--artifact-name <tpl>` | Filename template for artifacts (default `{{seqNum}} {{title}}`) |
 | `--debug` | Verbose logging |
 
 ### Chrome extension
@@ -123,8 +123,12 @@ The chat note filename and artifact filenames are also templated. Configurable i
 
 | Setting | Default | Variables |
 |---|---|---|
-| **Chat file name** | `{{created}}_{{title}}` | `{{title}}`, `{{created}}`, `{{updated}}`, `{{exported}}`, `{{model}}`, `{{messages}}`, `{{artifacts}}` |
-| **Artifact file name** | `{{seqNum}}_{{title}}` | `{{seqNum}}`, `{{title}}`, `{{chatTitle}}`, `{{chatCreated}}` |
+| **Chat file name** | `{{created}} {{title}}` | `{{title}}`, `{{titleSanitized}}`, `{{created}}`, `{{updated}}`, `{{exported}}`, `{{model}}`, `{{messages}}`, `{{artifacts}}` |
+| **Artifact file name** | `{{seqNum}} {{title}}` | `{{seqNum}}`, `{{title}}`, `{{titleSanitized}}`, `{{chatTitle}}`, `{{chatTitleSanitized}}`, `{{chatCreated}}` |
+
+`{{title}}` (and `{{chatTitle}}`) preserve case and spaces — only filesystem-unsafe characters are stripped. Defaults produce Obsidian-style names like `2026-04-28 Project Roadmap.md` and `01 Setup Guide.md`.
+
+For the legacy lowercased-and-underscored form (e.g. `2026-04-28_interview_process_research`), use `{{titleSanitized}}` / `{{chatTitleSanitized}}`.
 
 Extensions are appended automatically. Unknown variables (e.g. typos like `{{ttile}}`) are left literal in the resulting filename so mistakes are visible. If the template renders empty, the filename falls back to `untitled`.
 

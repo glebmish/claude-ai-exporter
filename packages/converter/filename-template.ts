@@ -1,27 +1,27 @@
 /**
  * Filename template substitution.
  *
- * Used for chat note filenames and artifact filenames. Variable values are
- * expected to come pre-sanitized (using sanitizeConversationTitle for chat
- * titles, sanitizeFilename for artifact titles, etc.). This module handles
- * the {{name}} substitution and a final cleanup pass.
+ * Used for chat note filenames and artifact filenames. Two title variants are
+ * exposed in the variable map:
  *
- * Behavior:
- *  - Unknown variables are left literal in the result so typos surface.
- *  - Final cleanup replaces filesystem-unsafe characters and collapses
- *    runs of underscores; no length truncation.
- *  - An empty post-cleanup result yields "untitled".
+ *   {{title}}, {{chatTitle}}                 — minimally sanitized (case + spaces preserved)
+ *   {{titleSanitized}}, {{chatTitleSanitized}} — heavily sanitized (lowercased, underscored, length-capped)
+ *
+ * The substitution helper itself only:
+ *   - replaces {{name}} tokens from the variable map (unknown vars left literal)
+ *   - runs a minimal final cleanup: strip filesystem-unsafe chars, normalize
+ *     whitespace, trim
+ *   - falls back to "untitled" if the cleaned result is empty
+ *
+ * Length capping and case/underscore normalization happen earlier (when the
+ * caller pre-sanitizes the values), not here.
  */
 
 const VARIABLE_RE = /\{\{(\w+)\}\}/g;
+const UNSAFE_CHARS = /[<>:"/\\|?*\x00-\x1f]/g;
 
-function finalCleanup(s: string): string {
-  return s
-    .replace(/[<>:"/\\|?*]/g, "_")
-    .replace(/\s+/g, "_")
-    .replace(/_{2,}/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .toLowerCase();
+export function sanitizeForFilename(s: string): string {
+  return s.replace(UNSAFE_CHARS, "").replace(/\s+/g, " ").trim();
 }
 
 export function applyFilenameTemplate(
@@ -31,9 +31,9 @@ export function applyFilenameTemplate(
   const substituted = template.replace(VARIABLE_RE, (match, name) =>
     name in vars ? vars[name] : match,
   );
-  const cleaned = finalCleanup(substituted);
+  const cleaned = sanitizeForFilename(substituted);
   return cleaned || "untitled";
 }
 
-export const DEFAULT_CHAT_NAME_TEMPLATE = "{{created}}_{{title}}";
-export const DEFAULT_ARTIFACT_NAME_TEMPLATE = "{{seqNum}}_{{title}}";
+export const DEFAULT_CHAT_NAME_TEMPLATE = "{{created}} {{title}}";
+export const DEFAULT_ARTIFACT_NAME_TEMPLATE = "{{seqNum}} {{title}}";

@@ -466,10 +466,10 @@ describe("buildMarkdown", () => {
   });
 
   describe("datedTitle", () => {
-    it("returns date-prefixed sanitized title", () => {
+    it("returns date-prefixed title with case + spaces preserved", () => {
       const data = makeMinimalConversation();
       const { datedTitle } = buildMarkdown(data, {});
-      assert.equal(datedTitle, "2026-01-15_test_conversation");
+      assert.equal(datedTitle, "2026-01-15 Test Conversation");
     });
   });
 });
@@ -481,7 +481,7 @@ describe("processArtifacts", () => {
     assert.equal(artifacts.size, 1);
     const art = artifacts.values().next().value!;
     assert.ok(art.filename.endsWith(".py"));
-    assert.ok(art.filename.startsWith("01_"));
+    assert.ok(art.filename.startsWith("01 "));
   });
 
   it("create_file replaces existing artifact with matching heading", () => {
@@ -491,7 +491,7 @@ describe("processArtifacts", () => {
     const art = artifacts.values().next().value!;
     assert.ok(art.content.includes("Expanded content v2"), "should contain create_file content");
     assert.ok(!art.content.includes("Original content v1"), "should not contain old content");
-    assert.equal(art.filename, "01_my_guide.md");
+    assert.equal(art.filename, "01 My Guide.md");
     assert.equal(pathToArtifactId.get("/mnt/user-data/outputs/my-guide.md"), "art-001");
   });
 
@@ -620,7 +620,7 @@ describe("parseConversation", () => {
   it("datedTitle uses created date prefix", () => {
     const data = makeMinimalConversation({ created_at: "2026-03-01T09:00:00Z" });
     const result = parseConversation(data, {});
-    assert.ok(result.datedTitle.startsWith("2026-03-01_"));
+    assert.ok(result.datedTitle.startsWith("2026-03-01 "));
   });
 });
 

@@ -1,19 +1,19 @@
 import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
-import { applyFilenameTemplate, DEFAULT_CHAT_NAME_TEMPLATE, DEFAULT_ARTIFACT_NAME_TEMPLATE } from "../packages/converter/filename-template.ts";
+import { applyFilenameTemplate, sanitizeForFilename, DEFAULT_CHAT_NAME_TEMPLATE, DEFAULT_ARTIFACT_NAME_TEMPLATE } from "../packages/converter/filename-template.ts";
 
 describe("applyFilenameTemplate", () => {
   it("substitutes a single variable", () => {
-    const out = applyFilenameTemplate("{{title}}", { title: "my_chat" });
-    assert.equal(out, "my_chat");
+    const out = applyFilenameTemplate("{{title}}", { title: "My Chat" });
+    assert.equal(out, "My Chat");
   });
 
-  it("substitutes multiple variables", () => {
-    const out = applyFilenameTemplate("{{created}}_{{title}}", {
+  it("preserves case and spaces", () => {
+    const out = applyFilenameTemplate("{{created}} {{title}}", {
       created: "2026-01-15",
-      title: "my_chat",
+      title: "Project Roadmap",
     });
-    assert.equal(out, "2026-01-15_my_chat");
+    assert.equal(out, "2026-01-15 Project Roadmap");
   });
 
   it("substitutes the same variable multiple times", () => {
@@ -36,50 +36,80 @@ describe("applyFilenameTemplate", () => {
     assert.equal(out, "untitled");
   });
 
-  it("replaces filesystem-unsafe characters with underscores", () => {
-    const out = applyFilenameTemplate("{{title}}", { title: "a/b\\c:d" });
-    assert.equal(out, "a_b_c_d");
+  it("strips filesystem-unsafe characters", () => {
+    const out = applyFilenameTemplate("{{title}}", { title: 'a/b\\c:d?e*f"g<h>i|j' });
+    assert.equal(out, "abcdefghij");
   });
 
-  it("collapses runs of underscores from substitution", () => {
-    const out = applyFilenameTemplate("{{a}}_{{b}}", { a: "", b: "x" });
-    assert.equal(out, "x");
+  it("normalizes runs of whitespace to a single space", () => {
+    const out = applyFilenameTemplate("{{title}}", { title: "a  b   c" });
+    assert.equal(out, "a b c");
   });
 
-  it("strips leading and trailing underscores", () => {
-    const out = applyFilenameTemplate("__{{title}}__", { title: "chat" });
+  it("trims surrounding whitespace", () => {
+    const out = applyFilenameTemplate("  {{title}}  ", { title: "chat" });
     assert.equal(out, "chat");
   });
 
-  it("lowercases the output", () => {
+  it("does NOT lowercase output", () => {
     const out = applyFilenameTemplate("{{title}}", { title: "MyChat" });
-    assert.equal(out, "mychat");
+    assert.equal(out, "MyChat");
   });
 
-  it("collapses whitespace to underscores", () => {
-    const out = applyFilenameTemplate("{{model}}", { model: "Sonnet 4.6" });
-    assert.equal(out, "sonnet_4.6");
+  it("does NOT collapse underscores (user-chosen separators are preserved)", () => {
+    const out = applyFilenameTemplate("{{a}}__{{b}}", { a: "x", b: "y" });
+    assert.equal(out, "x__y");
   });
 
-  it("does NOT truncate long substituted output", () => {
+  it("does NOT truncate long output", () => {
     const long = "a".repeat(200);
     const out = applyFilenameTemplate("{{title}}", { title: long });
     assert.equal(out.length, 200);
   });
 
-  it("default chat template reproduces legacy '{date}_{title}' shape", () => {
-    const out = applyFilenameTemplate(DEFAULT_CHAT_NAME_TEMPLATE, {
-      title: "my_chat",
-      created: "2026-01-15",
+  it("exposes both {{title}} and {{titleSanitized}}", () => {
+    const out = applyFilenameTemplate("{{title}} - {{titleSanitized}}", {
+      title: "My Chat",
+      titleSanitized: "my_chat",
     });
-    assert.equal(out, "2026-01-15_my_chat");
+    assert.equal(out, "My Chat - my_chat");
   });
 
-  it("default artifact template reproduces legacy '{NN}_{title}' shape", () => {
+  it("default chat template produces Obsidian-style 'YYYY-MM-DD Title' output", () => {
+    const out = applyFilenameTemplate(DEFAULT_CHAT_NAME_TEMPLATE, {
+      title: "My Chat",
+      created: "2026-01-15",
+    });
+    assert.equal(out, "2026-01-15 My Chat");
+  });
+
+  it("default artifact template produces 'NN Title' output", () => {
     const out = applyFilenameTemplate(DEFAULT_ARTIFACT_NAME_TEMPLATE, {
       seqNum: "01",
-      title: "my_artifact",
+      title: "Setup Guide",
     });
-    assert.equal(out, "01_my_artifact");
+    assert.equal(out, "01 Setup Guide");
+  });
+});
+
+describe("sanitizeForFilename", () => {
+  it("strips filesystem-unsafe characters", () => {
+    assert.equal(sanitizeForFilename('a/b:c"d'), "abcd");
+  });
+
+  it("preserves case", () => {
+    assert.equal(sanitizeForFilename("MyChat"), "MyChat");
+  });
+
+  it("normalizes whitespace runs", () => {
+    assert.equal(sanitizeForFilename("a  b   c"), "a b c");
+  });
+
+  it("trims surrounding whitespace", () => {
+    assert.equal(sanitizeForFilename("  a  "), "a");
+  });
+
+  it("returns empty string for empty input", () => {
+    assert.equal(sanitizeForFilename(""), "");
   });
 });
