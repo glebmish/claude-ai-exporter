@@ -425,6 +425,54 @@ describe("buildMarkdown", () => {
       assert.ok(markdown.includes("*[Attached: data.csv (2 KB)]*"));
       assert.ok(markdown.includes("*[Attached: notes.txt"));
     });
+
+    it("inlines extracted_content as a fenced code block", () => {
+      const data = makeMinimalConversation({
+        chat_messages: [
+          {
+            uuid: "msg-001",
+            sender: "human",
+            content: [{ type: "text", text: "See pasted log" }],
+            created_at: "2026-01-15T10:00:00Z",
+            attachments: [
+              {
+                file_name: "pasted content",
+                file_size: 14336,
+                file_type: "txt",
+                extracted_content: "line one\nline two\nline three",
+              },
+            ],
+          },
+        ],
+      });
+      const { markdown } = buildMarkdown(data, {});
+      assert.ok(markdown.includes("*[Attached: pasted content (14 KB)]*"));
+      assert.ok(markdown.includes("line one\nline two\nline three"));
+      assert.ok(markdown.includes("```\nline one"));
+    });
+
+    it("uses a longer fence when extracted_content contains triple backticks", () => {
+      const data = makeMinimalConversation({
+        chat_messages: [
+          {
+            uuid: "msg-001",
+            sender: "human",
+            content: [{ type: "text", text: "snippet" }],
+            created_at: "2026-01-15T10:00:00Z",
+            attachments: [
+              {
+                file_name: "code.md",
+                file_size: 100,
+                extracted_content: "before\n```\ninner code\n```\nafter",
+              },
+            ],
+          },
+        ],
+      });
+      const { markdown } = buildMarkdown(data, {});
+      assert.ok(markdown.includes("````\nbefore"), "outer fence should be 4 backticks");
+      assert.ok(markdown.includes("```\ninner code\n```"), "inner triple-backticks preserved");
+    });
   });
 
   describe("images", () => {

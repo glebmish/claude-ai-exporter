@@ -534,6 +534,15 @@ export function parseConversation(
         const size = att.file_size ? ` (${formatFileSize(att.file_size)})` : "";
         bodyLines.push(`*[Attached: ${name}${size}]*`);
         bodyLines.push("");
+        if (att.extracted_content) {
+          const lang = att.file_type && att.file_type !== "txt" ? att.file_type : "";
+          const longest = att.extracted_content.match(/`{3,}/g)?.reduce((m, s) => Math.max(m, s.length), 0) ?? 0;
+          const fence = "`".repeat(Math.max(3, longest + 1));
+          bodyLines.push(fence + lang);
+          bodyLines.push(att.extracted_content.replace(/\n+$/, ""));
+          bodyLines.push(fence);
+          bodyLines.push("");
+        }
       }
 
       for (const block of msg.content || []) {
