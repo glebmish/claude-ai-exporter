@@ -1,4 +1,5 @@
 export type { FileSystem, ExportOptions, ExportDeps, ExportResult } from "./types.ts";
+export { applyTemplate, findExportedKey, patchInProgress } from "./template.ts";
 
 export async function runExport(
   _opts: import("./types.ts").ExportOptions,

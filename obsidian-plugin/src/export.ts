@@ -1,6 +1,6 @@
 import { App, TFile, TFolder, normalizePath } from "obsidian";
 import { parseConversation, renderDefault, collectImages, sanitizeFilename, parseConversationId, buildEnrichmentInput } from "../../packages/converter/index.ts";
-import { applyTemplate } from "./template.ts";
+import { applyTemplate, findExportedKey, patchInProgress } from "../../packages/orchestrator/template.ts";
 import { enrichWithToc, parseTocFromMarkdown, parseKeyTopicsFromMarkdown, parseKeyTopicsFlatFromTemplate, reuseExistingToc } from "../../packages/toc/index.ts";
 import type { TocTopic } from "../../packages/toc/index.ts";
 import { findChrome, isAlreadyRunning, launchChrome, waitForReady, shutdownChrome, CdpClient, extractAuth, log } from "../../packages/chrome/index.ts";
@@ -10,32 +10,6 @@ const xlog = {
   warn:  (...a: unknown[]) => console.warn("[claude-exporter]", ...a),
   error: (...a: unknown[]) => console.error("[claude-exporter]", ...a),
 };
-
-/**
- * Scan a template for a frontmatter line that uses {{exported}}.
- * Returns the YAML key name (e.g. "exported", "refreshed") or null if not found.
- * Also accepts the full markdown body — searches everywhere, not just frontmatter.
- */
-function findExportedKey(templateText: string): string | null {
-  const match = templateText.match(/^([\w-]+):\s*[^\n]*\{\{exported\}\}/m);
-  return match ? match[1] : null;
-}
-
-/**
- * Replace the value of a frontmatter key with "updating".
- * Only modifies the first YAML frontmatter block (between --- markers).
- */
-function patchInProgress(content: string, key: string): string {
-  // Scope replacement to the frontmatter block only — never touch message body
-  return content.replace(
-    /^(---\n[\s\S]*?\n---)/m,
-    (frontmatter) =>
-      frontmatter.replace(
-        new RegExp(`^(${key}:\\s*)([^\\n]*)`, "m"),
-        "$1updating",
-      ),
-  );
-}
 
 interface ExportSettings {
   exportFolder: string;
