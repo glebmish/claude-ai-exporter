@@ -131,3 +131,42 @@ describe("sanitizeForFilename", () => {
     assert.equal(sanitizeForFilename("Москва"), "Москва");
   });
 });
+
+describe("chatName literal in parseConversation", () => {
+  const data = {
+    uuid: "abc-123",
+    name: "Some Title",
+    model: "claude-opus-4-6",
+    created_at: "2026-01-15T10:00:00Z",
+    updated_at: "2026-01-15T10:00:00Z",
+    chat_messages: [],
+  };
+
+  it("literal name is used verbatim, with FS-unsafe chars stripped", async () => {
+    const { parseConversation } = await import("../packages/converter/index.ts");
+    const r = parseConversation(data, { format: "standard" }, { chatName: "my note: a/b" });
+    assert.equal(r.datedTitle, "my note ab");
+  });
+
+  it("literal name does not substitute {{var}} tokens", async () => {
+    const { parseConversation } = await import("../packages/converter/index.ts");
+    const r = parseConversation(data, { format: "standard" }, { chatName: "{{created}} {{title}}" });
+    assert.equal(r.datedTitle, "{{created}} {{title}}");
+  });
+
+  it("literal takes precedence over template if both set", async () => {
+    const { parseConversation } = await import("../packages/converter/index.ts");
+    const r = parseConversation(data, { format: "standard" }, {
+      chatName: "literal-wins",
+      chatNameTemplate: "{{created}} {{title}}",
+    });
+    assert.equal(r.datedTitle, "literal-wins");
+  });
+
+  it("empty literal falls back to untitled", async () => {
+    const { parseConversation } = await import("../packages/converter/index.ts");
+    const r = parseConversation(data, { format: "standard" }, { chatName: "" });
+    // Empty string is falsy so the template path is taken
+    assert.notEqual(r.datedTitle, "");
+  });
+});

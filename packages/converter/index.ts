@@ -490,16 +490,18 @@ export function parseConversation(
 
   // Compute datedTitle early so artifactLinkPrefix can be derived from it
   const exportedDate = new Date().toISOString().substring(0, 10);
-  const datedTitle = applyFilenameTemplate(chatNameTemplate, {
-    title: chatTitleMinimal,
-    titleSanitized: chatTitleSanitized,
-    created: chatCreatedDate,
-    updated: formatDatePrefix(data.updated_at),
-    exported: exportedDate,
-    model: formatModelName(model),
-    messages: String(humanCount),
-    artifacts: String(artifacts.size),
-  });
+  const datedTitle = context.chatName
+    ? (sanitizeForFilename(context.chatName) || "untitled")
+    : applyFilenameTemplate(chatNameTemplate, {
+        title: chatTitleMinimal,
+        titleSanitized: chatTitleSanitized,
+        created: chatCreatedDate,
+        updated: formatDatePrefix(data.updated_at),
+        exported: exportedDate,
+        model: formatModelName(model),
+        messages: String(humanCount),
+        artifacts: String(artifacts.size),
+      });
 
   // Derive artifactLinkPrefix from artifactsFolder if caller didn't provide one explicitly
   const artifactLinkPrefix = context.artifactLinkPrefix

@@ -54,6 +54,8 @@ export interface BuildMarkdownContext {
   artifactLinkPrefix?: string;
   imageLinkPrefix?: string;
   imageFilenames?: Array<{ msgIndex: number; filename: string }>;
+  /** Literal chat filename — when set, no {{var}} substitution is performed. Takes precedence over chatNameTemplate. */
+  chatName?: string;
   chatNameTemplate?: string;
   artifactNameTemplate?: string;
   /** When set, parseConversation derives artifactLinkPrefix as `${artifactsFolder}/${datedTitle}`. */
