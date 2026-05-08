@@ -183,16 +183,11 @@ export async function runExport(opts: ExportOptions, deps: ExportDeps): Promise<
     }
   }
 
-  // Phase 4: template-var scan + warnings
+  // Phase 4: enrichment intent comes from the flags as passed.
+  // Callers (CLI / plugin) are responsible for deriving flags from template
+  // placeholders if that's their model. Orchestrator stays orthogonal.
   const tplVars = scanTemplateVars(opts.templateText);
-  const anyTplTocVar = tplVars.hasToc || tplVars.hasTocWithRecap || tplVars.hasKeyTopics || tplVars.hasKeyTopicsFlat;
-  const anyEnrichmentFlag = opts.toc || opts.tocRecap || opts.topics;
-  if (anyTplTocVar && !anyEnrichmentFlag) {
-    warnings.push("template contains TOC variables but no enrichment flag is set — placeholders will be empty");
-  }
-  if (opts.tocRecap && opts.templateText && !tplVars.hasTocWithRecap) {
-    warnings.push("--toc-recap set but template has no {{tocWithRecap}} placeholder — value will be dropped");
-  }
+  const flags = { toc: opts.toc, tocRecap: opts.tocRecap, topics: opts.topics };
 
   // Phase 5: enrichment
   const decision = await decideEnrichment(
@@ -200,7 +195,7 @@ export async function runExport(opts: ExportOptions, deps: ExportDeps): Promise<
     buildEnrichmentInput(data),
     opts.format,
     opts.claudePath,
-    { toc: opts.toc, tocRecap: opts.tocRecap, topics: opts.topics },
+    flags,
     tplVars,
     existing,
   );
@@ -210,7 +205,7 @@ export async function runExport(opts: ExportOptions, deps: ExportDeps): Promise<
   // Phase 6: render
   const toRender = opts.templateText
     ? enriched
-    : filterEnrichmentForDefaultRender(enriched, { toc: opts.toc, tocRecap: opts.tocRecap, topics: opts.topics });
+    : filterEnrichmentForDefaultRender(enriched, flags);
   const markdown = opts.templateText
     ? applyTemplate(opts.templateText, toRender)
     : renderDefault(toRender);

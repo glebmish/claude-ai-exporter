@@ -129,14 +129,26 @@ describe("runExport — template + enrichment", () => {
     assert.ok(note.includes("Hello"));
   });
 
-  it("case 5: TOC variable in template, no enrichment flag → warning, empty placeholder", async () => {
+  it("case 5: template-driven flags reuse existing TOC and substitute placeholder", async () => {
+    // Caller (CLI / plugin) derives flags from template placeholders before invoking runExport.
+    // Here we pass tocRecap:true alongside {{tocWithRecap}} in the template body.
     const fs = new InMemoryFs();
     const cdp = makeStubCdp({ conversation: baseConversation });
-    const tpl = "# {{title}}\n{{toc}}\n{{content}}\n";
-    const result = await runExport({ ...baseOpts, templateText: tpl }, { fs, cdpOverride: cdp });
-    assert.ok(result.warnings.some((w) => w.includes("TOC variables")));
+    const existingPath = "out/existing.md";
+    fs.preset(existingPath, buildExistingMarkdown({
+      title: "Test Chat",
+      lastCoveredMsg: 2,
+      topics: [{ heading: "Greeting", range: "1–2", recap: "exchanged hellos" }],
+    }));
+    const tpl = "# {{title}}\n\n{{tocWithRecap}}\n\n{{content}}\n";
+    const result = await runExport(
+      { ...baseOpts, templateText: tpl, existingFilePath: existingPath, tocRecap: true },
+      { fs, cdpOverride: cdp },
+    );
+    assert.equal(result.tocReused, true);
     const note = fs.read(result.filePath) as string;
-    assert.ok(!note.includes("{{toc}}"));
+    assert.ok(!note.includes("{{tocWithRecap}}"));
+    assert.ok(note.includes("exchanged hellos"));
   });
 });
 
@@ -409,7 +421,7 @@ describe("runExport — flag-gated default rendering", () => {
   });
 
   it("template path is unaffected — placeholders gate field emission, no filtering applied", async () => {
-    // Template only references {{tocWithRecap}} — even though enrichment populates
+    // Template references only {{tocWithRecap}} — even though enrichment populates
     // toc/keyTopics too, only the recap placeholder should appear in output.
     const { fs, cdp, existingPath } = setup();
     const tpl = "# {{title}}\n\n{{tocWithRecap}}\n\n{{content}}\n";

@@ -43,7 +43,21 @@ async function main(): Promise<number> {
     }
   }
 
-  const opts = { ...parsed.opts, ...(templateText ? { templateText } : {}) };
+  // With --template, the placeholders in the template body declare which enrichment is needed.
+  // argv guarantees --toc/--toc-recap/--topics are not set in this case.
+  const enrichmentFromTemplate = templateText
+    ? {
+        toc: /\{\{toc\}\}/.test(templateText),
+        tocRecap: /\{\{tocWithRecap\}\}/.test(templateText),
+        topics: /\{\{(keyTopics|keyTopicsFlat)\}\}/.test(templateText),
+      }
+    : null;
+
+  const opts = {
+    ...parsed.opts,
+    ...(templateText ? { templateText } : {}),
+    ...(enrichmentFromTemplate ?? {}),
+  };
 
   try {
     const result = await runExport(opts, {

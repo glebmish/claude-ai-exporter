@@ -71,6 +71,29 @@ describe("parseArgv", () => {
     if (r.kind === "error") assert.match(r.message, /existing/);
   });
 
+  it("--toc with --template → error", () => {
+    const r = parseArgv(["12345678-1234-1234-1234-123456789012", "--template", "tpl.md", "--toc"]);
+    assert.equal(r.kind, "error");
+    if (r.kind === "error") assert.match(r.message, /template/);
+  });
+
+  it("--toc-recap with --template → error", () => {
+    const r = parseArgv(["12345678-1234-1234-1234-123456789012", "--template", "tpl.md", "--toc-recap"]);
+    assert.equal(r.kind, "error");
+    if (r.kind === "error") assert.match(r.message, /template/);
+  });
+
+  it("--topics with --template → error", () => {
+    const r = parseArgv(["12345678-1234-1234-1234-123456789012", "--template", "tpl.md", "--topics"]);
+    assert.equal(r.kind, "error");
+    if (r.kind === "error") assert.match(r.message, /template/);
+  });
+
+  it("--template alone (placeholders carry intent) → ok", () => {
+    const r = parseArgv(["12345678-1234-1234-1234-123456789012", "--template", "tpl.md"]);
+    assert.equal(r.kind, "ok");
+  });
+
   it("--patch-in-progress with --existing → ok", () => {
     const r = parseArgv([
       "12345678-1234-1234-1234-123456789012",

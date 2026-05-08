@@ -24,7 +24,7 @@ Content:
       --thinking                      Include assistant thinking
       --tools                         Include tool-call details
 
-Enrichment:
+Enrichment (mutually exclusive with --template; with --template, declare via placeholders):
       --toc                           AI table of contents
       --toc-recap                     TOC + per-topic recap
       --topics                        Key-topics list
@@ -155,6 +155,9 @@ export function parseArgv(args: string[]): ArgvResult {
   }
   if (o.patchInProgress && !o.existingFilePath) {
     return err(`--patch-in-progress requires --existing`);
+  }
+  if (o.templatePath !== undefined && (o.toc || o.tocRecap || o.topics)) {
+    return err(`--toc, --toc-recap, and --topics are not allowed with --template — declare enrichment via {{toc}}, {{tocWithRecap}}, {{keyTopics}}, or {{keyTopicsFlat}} placeholders in the template body`);
   }
 
   const opts: ExportOptions = {
