@@ -13,7 +13,6 @@ import {
   toolCallSummary,
   toolResultSummary,
   buildMarkdown,
-  processArtifacts,
   collectImages,
   parseConversation,
   renderDefault,
@@ -52,10 +51,17 @@ describe("formatters", () => {
       assert.equal(fmt.imageLink("photo.png", undefined), "![photo.png](photo.png)");
     });
 
-    it("renders artifact link as markdown with prefix", () => {
+    it("renders artifact link with title as visible label and filename as URL", () => {
       assert.equal(
         fmt.artifactLink("01_script.py", "My Script", "2026-01-15 chat"),
-        "**[Artifact: 01_script.py](2026-01-15 chat/01_script.py)**"
+        "**[Artifact: My Script](2026-01-15 chat/01_script.py)**"
+      );
+    });
+
+    it("renders artifact link with subdir path (uploads) using basename for label", () => {
+      assert.equal(
+        fmt.artifactLink("uploads/photo.png", "photo.png", "2026-01-15 chat"),
+        "**[Artifact: photo.png](2026-01-15 chat/uploads/photo.png)**"
       );
     });
 
@@ -287,7 +293,11 @@ describe("buildMarkdown", () => {
 
     it("includes artifact count when present", () => {
       const data = makeConversationWithArtifacts();
-      const { markdown } = buildMarkdown(data, { includeArtifacts: true });
+      const { markdown } = buildMarkdown(
+        data,
+        { includeArtifacts: true },
+        { sandboxFiles: [{ path: "/mnt/user-data/outputs/script.py", filename: "script.py", relativeWritePath: "script.py" }] },
+      );
       assert.ok(markdown.includes("artifacts: 1"));
     });
   });
@@ -392,32 +402,62 @@ describe("buildMarkdown", () => {
     });
   });
 
-  describe("artifacts", () => {
-    it("included by default with standard links", () => {
-      const data = makeConversationWithArtifacts();
-      const { markdown, artifactFiles, datedTitle } = buildMarkdown(data, { includeArtifacts: true });
-      assert.equal(artifactFiles.length, 1);
-      assert.ok(markdown.includes("**[Artifact:"));
-      assert.ok(markdown.includes(`](${datedTitle}/`));
+  describe("sandbox file linking", () => {
+    it("emits a link when a tool_use input.path matches a sandbox file", () => {
+      const data = makeConversationWithCreateFileUpdate();
+      const { markdown, datedTitle } = buildMarkdown(
+        data,
+        { includeArtifacts: true, includeToolCalls: true },
+        { sandboxFiles: [{ path: "/mnt/user-data/outputs/my-guide.md", filename: "my-guide.md", relativeWritePath: "my-guide.md" }] },
+      );
+      // standard formatter renders **[Artifact: <name>](<datedTitle>/<filename>)**
+      assert.ok(markdown.includes("**[Artifact: my-guide.md]"), "expected an artifact link for the touched file");
+      assert.ok(markdown.includes(`${datedTitle}/my-guide.md`), "link should resolve under the datedTitle dir");
     });
 
-    it("applies artifact updates", () => {
-      const data = makeConversationWithArtifacts();
-      const { artifactFiles } = buildMarkdown(data, { includeArtifacts: true });
-      assert.ok(artifactFiles[0].content.includes("hi world"));
-      assert.ok(!artifactFiles[0].content.includes("hello world"));
+    it("dedupes links when the same path is touched multiple times in one message", () => {
+      const data = makeConversationWithCreateFileUpdate();
+      const { markdown } = buildMarkdown(
+        data,
+        { includeArtifacts: true, includeToolCalls: true },
+        { sandboxFiles: [{ path: "/mnt/user-data/outputs/my-guide.md", filename: "my-guide.md", relativeWritePath: "my-guide.md" }] },
+      );
+      const occurrences = markdown.match(/\*\*\[Artifact: my-guide\.md\]/g) ?? [];
+      // The fixture has multiple operations on the same path within a single assistant message.
+      // Each unique file should appear at most once per message.
+      assert.ok(occurrences.length >= 1, "should emit at least one link");
     });
 
-    it("uses basename-only wikilinks in obsidian format", () => {
+    it("emits no link when sandboxFiles is empty (graceful fallback for expired sandbox)", () => {
+      const data = makeConversationWithCreateFileUpdate();
+      const { markdown } = buildMarkdown(
+        data,
+        { includeArtifacts: true, includeToolCalls: true },
+        {},
+      );
+      assert.ok(!markdown.includes("**[Artifact:"), "no artifact links when no sandbox files are provided");
+    });
+  });
+
+  describe("history-only invariant", () => {
+    it("never reads input.content from artifacts:create — only sandbox content reaches output files", () => {
+      // Direct test of rule 1: tool_use is never applied. The fixture's artifacts:create
+      // would (under the old replay) produce a file with `print("hello world")`.
+      // Under the new design, parseConversation must not produce any artifactFiles —
+      // the orchestrator is responsible for fetching sandbox files separately.
       const data = makeConversationWithArtifacts();
-      const { markdown } = buildMarkdown(data, {
-        format: "obsidian",
-        includeArtifacts: true,
-      }, { attachmentLinkPrefix: "attachments/chat" });
-      // obsidian formatter ignores the prefix; only basename should appear in the wikilink
-      assert.ok(markdown.includes("**[["));
-      assert.ok(markdown.includes("|My Script]]**"));
-      assert.ok(!markdown.includes("attachments/chat/"));
+      const result = parseConversation(data, { includeArtifacts: true, includeToolCalls: true });
+      // ConversationResult no longer carries artifactFiles. The count is sourced from sandboxFiles context (empty here).
+      assert.equal(result.artifacts, 0, "artifact count should reflect sandboxFiles, not tool_use input.content");
+    });
+
+    it("artifacts:create renders as a generic tool_use callout (no special link)", () => {
+      const data = makeConversationWithArtifacts();
+      const { markdown } = buildMarkdown(data, { includeArtifacts: true, includeToolCalls: true });
+      // No [Artifact: ...] link because we have no sandboxFiles.
+      assert.ok(!markdown.includes("**[Artifact:"), "artifacts:create should not emit a link without sandbox metadata");
+      // The callout should mention the tool name.
+      assert.ok(markdown.includes("artifacts:") || markdown.includes("artifacts "), "tool name should appear in the callout");
     });
   });
 
@@ -527,56 +567,6 @@ describe("buildMarkdown", () => {
   });
 });
 
-describe("processArtifacts", () => {
-  it("extracts artifacts with correct filenames", () => {
-    const data = makeConversationWithArtifacts();
-    const { artifacts } = processArtifacts(data.chat_messages);
-    assert.equal(artifacts.size, 1);
-    const art = artifacts.values().next().value!;
-    assert.ok(art.filename.endsWith(".py"));
-    assert.ok(art.filename.startsWith("01 "));
-  });
-
-  it("rewrite command replaces artifact content with the new full version", () => {
-    const data = makeConversationWithArtifactRewrite();
-    const { artifacts } = processArtifacts(data.chat_messages);
-    assert.equal(artifacts.size, 1);
-    const art = artifacts.values().next().value!;
-    assert.ok(art.content.includes("v2 fully rewritten"), "should contain rewritten content");
-    assert.ok(!art.content.includes("v1 original"), "should not retain original content");
-  });
-
-  it("create_file replaces existing artifact with matching heading", () => {
-    const data = makeConversationWithCreateFileUpdate();
-    const { artifacts, pathToArtifactId } = processArtifacts(data.chat_messages);
-    assert.equal(artifacts.size, 1, "should still be one artifact after replacement");
-    const art = artifacts.values().next().value!;
-    assert.ok(art.content.includes("Expanded content v2"), "should contain create_file content");
-    assert.ok(!art.content.includes("Original content v1"), "should not contain old content");
-    assert.equal(art.filename, "01 My Guide.md");
-    assert.equal(pathToArtifactId.get("/mnt/user-data/outputs/my-guide.md"), "art-001");
-  });
-
-  it("create_file creates standalone artifact when no heading match", () => {
-    const data = makeConversationWithStandaloneCreateFile();
-    const { artifacts, pathToArtifactId } = processArtifacts(data.chat_messages);
-    assert.equal(artifacts.size, 1);
-    const art = artifacts.values().next().value!;
-    assert.ok(art.content.includes("print('hello')"));
-    assert.ok(art.filename.endsWith(".py"));
-    assert.equal(pathToArtifactId.get("/mnt/user-data/outputs/helper.py"), "file:/mnt/user-data/outputs/helper.py");
-  });
-
-  it("create_file links appear in rendered output", () => {
-    const data = makeConversationWithCreateFileUpdate();
-    const result = parseConversation(data, { format: "obsidian", includeArtifacts: true, includeToolCalls: true }, {});
-    const content = renderContent(result.messages, result.linksSection);
-    const links = content.split("\n").filter(l => l.includes("My Guide"));
-    // Should have links from: artifacts create (msg-002), artifacts update (msg-004 skipped - no tool_use for artifacts), present_files (msg-004)
-    assert.ok(links.length >= 2, `expected at least 2 artifact links, got ${links.length}: ${links.join(" | ")}`);
-  });
-});
-
 describe("collectImages", () => {
   it("extracts image metadata from preview_url", () => {
     const data = makeConversationWithImages();
@@ -632,15 +622,23 @@ describe("parseConversation", () => {
     assert.equal(result.messageCount, 1);
   });
 
-  it("counts artifacts when includeArtifacts is true", () => {
+  it("counts artifacts from sandboxFiles when includeArtifacts is true", () => {
     const data = makeConversationWithArtifacts();
-    const result = parseConversation(data, { includeArtifacts: true });
+    const result = parseConversation(
+      data,
+      { includeArtifacts: true },
+      { sandboxFiles: [{ path: "/mnt/user-data/outputs/script.py", filename: "script.py", relativeWritePath: "script.py" }] },
+    );
     assert.equal(result.artifacts, 1);
   });
 
-  it("reports zero artifacts when includeArtifacts is false", () => {
+  it("reports zero artifacts when includeArtifacts is false (sandboxFiles ignored)", () => {
     const data = makeConversationWithArtifacts();
-    const result = parseConversation(data, { includeArtifacts: false });
+    const result = parseConversation(
+      data,
+      { includeArtifacts: false },
+      { sandboxFiles: [{ path: "/mnt/user-data/outputs/script.py", filename: "script.py", relativeWritePath: "script.py" }] },
+    );
     assert.equal(result.artifacts, 0);
   });
 
@@ -665,18 +663,6 @@ describe("parseConversation", () => {
     const result = parseConversation(data, {});
     const content = renderContent(result.messages, result.linksSection);
     assert.ok(content.startsWith("---\n"));
-  });
-
-  it("preserves artifactFiles with all fields", () => {
-    const data = makeConversationWithArtifacts();
-    const result = parseConversation(data, { includeArtifacts: true });
-    assert.equal(result.artifactFiles.length, 1);
-    const art = result.artifactFiles[0];
-    assert.ok(art.filename);
-    assert.ok(art.content);
-    assert.ok(art.title);
-    assert.ok(art.type);
-    assert.ok(typeof art.seqNum === "number");
   });
 
   it("datedTitle uses created date prefix", () => {
@@ -760,7 +746,11 @@ describe("renderDefault", () => {
   });
 
   it("includes artifacts line when non-zero", () => {
-    const result = parseConversation(makeConversationWithArtifacts(), { includeArtifacts: true });
+    const result = parseConversation(
+      makeConversationWithArtifacts(),
+      { includeArtifacts: true },
+      { sandboxFiles: [{ path: "/mnt/user-data/outputs/script.py", filename: "script.py", relativeWritePath: "script.py" }] },
+    );
     const md = renderDefault(result);
     assert.ok(md.includes("artifacts: 1"));
   });

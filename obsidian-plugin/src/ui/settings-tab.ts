@@ -54,7 +54,7 @@ export class ClaudeExporterSettingsTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Artifact file name")
-      .setDesc("Template for artifact filenames (no extension). Variables: {{seqNum}}, {{title}}, {{titleSanitized}}, {{chatTitle}}, {{chatTitleSanitized}}, {{chatCreated}}")
+      .setDesc("Template for artifact filenames (no extension). Variables: {{seqNum}} (1-based, by sandbox creation order), {{title}} (first H1 of the file, falling back to basename), {{titleSanitized}}, {{chatTitle}}, {{chatTitleSanitized}}, {{chatCreated}}")
       .addText((text) =>
         text
           .setPlaceholder("{{seqNum}} {{title}}")

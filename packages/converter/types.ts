@@ -48,23 +48,23 @@ export interface BuildMarkdownOptions {
   includeToolCalls?: boolean;
 }
 
+/** Linkable sandbox file. `path` is the wiggle absolute path; `filename` is the basename (used as the visible link label and the Obsidian wikilink target); `relativeWritePath` is where the file sits on disk relative to the per-chat attachments dir (e.g. `foo.md` for artifacts, `uploads/foo.png` for uploads) and is what the standard formatter uses to build the link URL. */
+export interface SandboxFileLink {
+  path: string;
+  filename: string;
+  relativeWritePath: string;
+}
+
 export interface BuildMarkdownContext {
   conversationId?: string;
   /** Override the relative link prefix used for artifact and image links. Defaults to datedTitle (so links resolve to <datedTitle>/<filename> from the note's directory). Ignored by the obsidian formatter, which always emits basename-only wikilinks. */
   attachmentLinkPrefix?: string;
   imageFilenames?: Array<{ msgIndex: number; filename: string }>;
+  /** Sandbox files available for linking from the conversation markdown. The converter never reads file content — the orchestrator fetches and writes the bodies separately. */
+  sandboxFiles?: SandboxFileLink[];
   /** Literal chat filename — when set, no {{var}} substitution is performed. Takes precedence over chatNameTemplate. */
   chatName?: string;
   chatNameTemplate?: string;
-  artifactNameTemplate?: string;
-}
-
-export interface ArtifactFile {
-  filename: string;
-  content: string;
-  title: string;
-  type: string;
-  seqNum: number;
 }
 
 export interface RenderedMessage {
@@ -87,20 +87,18 @@ export interface ConversationResult {
   createdTimestamp: string;
   updatedTimestamp: string;
   messageCount: number;       // human messages only
-  artifacts: number;
+  artifacts: number;          // count of sandbox files attached
   messages: RenderedMessage[];
   linksSection?: string;      // rendered "## Links\n\n1. [title](url)" block, or undefined
   toc?: string;
   tocWithRecap?: string;
   keyTopics?: string;
   keyTopicsFlat?: string;
-  artifactFiles: ArtifactFile[];
   datedTitle: string;
 }
 
 export interface BuildMarkdownResult {
   markdown: string;
-  artifactFiles: ArtifactFile[];
   datedTitle: string;
 }
 

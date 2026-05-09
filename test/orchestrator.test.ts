@@ -110,9 +110,17 @@ describe("runExport — attachments layout", () => {
     ],
   };
 
+  const sandboxFiles = [
+    {
+      path: "/mnt/user-data/outputs/plan.md",
+      contentType: "text/markdown",
+      text: "# Plan\nbody",
+    },
+  ];
+
   it("case 2: attachments → note at <output>/<datedTitle>.md, artifacts flat under <output>/<datedTitle>/", async () => {
     const fs = new InMemoryFs();
-    const cdp = makeStubCdp({ conversation: conversationWithArtifact });
+    const cdp = makeStubCdp({ conversation: conversationWithArtifact, sandboxFiles });
     const result = await runExport(baseOpts, { fs, cdpOverride: cdp });
     assert.equal(result.artifactCount, 1);
     assert.match(result.filePath, /^out\/.+\.md$/);
@@ -126,11 +134,13 @@ describe("runExport — attachments layout", () => {
     const artFiles = files.filter((f) => f.startsWith(result.attachmentsDir + "/"));
     assert.equal(artFiles.length, 1);
     assert.ok(!artFiles[0].includes("/artifacts/"), `artifact unexpectedly nested in subdir: ${artFiles[0]}`);
+    // Template default is "{{seqNum}} {{title}}"; first H1 is "Plan" → "01 Plan.md"
+    assert.ok(artFiles[0].endsWith("/01 Plan.md"), `expected templated 01 Plan.md, got ${artFiles[0]}`);
   });
 
   it("case 3: --attachments-dir override puts attachments under override", async () => {
     const fs = new InMemoryFs();
-    const cdp = makeStubCdp({ conversation: conversationWithArtifact });
+    const cdp = makeStubCdp({ conversation: conversationWithArtifact, sandboxFiles });
     const result = await runExport({ ...baseOpts, attachmentsDir: "att" }, { fs, cdpOverride: cdp });
     assert.match(result.filePath, /^out\/.+\.md$/);
     assert.match(result.attachmentsDir!, /^att\//);
@@ -138,6 +148,73 @@ describe("runExport — attachments layout", () => {
     // Files under att/ are flat (not under att/.../artifacts/) and never under out/
     assert.ok(files.some((f) => f.startsWith("att/") && !f.includes("/artifacts/")));
     assert.ok(!files.some((f) => f.startsWith("out/") && f !== result.filePath));
+  });
+
+  it("rule 1: wiggle content wins over tool_use input.content (no replay)", async () => {
+    // The fixture's artifacts:create has input.content = "REPLAY_ME". The wiggle stub
+    // returns "FROM_WIGGLE" for the same artifact's path. The exported file MUST contain
+    // "FROM_WIGGLE" (sandbox state), and "REPLAY_ME" must not appear in either the
+    // exported artifact body or the conversation markdown.
+    const conversationWithReplayBait = {
+      ...baseConversation,
+      chat_messages: [
+        ...baseConversation.chat_messages,
+        {
+          uuid: "m4",
+          sender: "assistant" as const,
+          content: [{
+            type: "tool_use",
+            name: "create_file",
+            input: { path: "/mnt/user-data/outputs/note.md", file_text: "REPLAY_ME — must not appear" },
+          }],
+          created_at: "2026-01-15T10:00:03Z",
+        },
+      ],
+    };
+    const fs = new InMemoryFs();
+    const cdp = makeStubCdp({
+      conversation: conversationWithReplayBait,
+      sandboxFiles: [
+        {
+          path: "/mnt/user-data/outputs/note.md",
+          contentType: "text/markdown",
+          text: "# Note\nFROM_WIGGLE — this is the live state",
+        },
+      ],
+    });
+    const result = await runExport(baseOpts, { fs, cdpOverride: cdp });
+    const artifactFile = fs.list().find((p) => p.endsWith(".md") && p !== result.filePath);
+    assert.ok(artifactFile, "expected an exported artifact file");
+    const body = (await fs.readText(artifactFile!))!;
+    assert.ok(body.includes("FROM_WIGGLE"), "exported artifact must carry wiggle content");
+    assert.ok(!body.includes("REPLAY_ME"), "exported artifact must NOT carry tool_use input.content");
+    const note = (await fs.readText(result.filePath))!;
+    assert.ok(!note.includes("REPLAY_ME — must not"), "conversation markdown must not surface full input.file_text");
+  });
+
+  it("uploads land in the uploads/ subdir under the dated-title folder", async () => {
+    const fs = new InMemoryFs();
+    const cdp = makeStubCdp({
+      conversation: conversationWithArtifact,
+      sandboxFiles: [
+        ...sandboxFiles,
+        {
+          path: "/mnt/user-data/uploads/photo.png",
+          contentType: "image/png",
+          base64: Buffer.from("fakebinary").toString("base64"),
+          created_at: "2026-01-15T09:59:00Z",
+        },
+      ],
+    });
+    const result = await runExport(baseOpts, { fs, cdpOverride: cdp });
+    const files = fs.list();
+    // upload at <attachmentsDir>/uploads/photo.png
+    assert.ok(
+      files.some((f) => f.endsWith("/uploads/photo.png")),
+      `expected an uploaded file under uploads/, got: ${files.join(", ")}`,
+    );
+    // artifact still flat (templated name)
+    assert.ok(files.some((f) => f.endsWith("/01 Plan.md") && !f.includes("/uploads/")));
   });
 });
 

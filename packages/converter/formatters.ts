@@ -4,15 +4,25 @@ function escapeHtml(str: string): string {
   return str.replace(/</g, "\\<").replace(/>/g, "\\>");
 }
 
+function basename(p: string): string {
+  const i = p.lastIndexOf("/");
+  return i === -1 ? p : p.slice(i + 1);
+}
+
+// `filename` for these formatters is the path relative to the per-chat attachments dir
+// (e.g. `02-shape.md` for an artifact, `uploads/IMG.png` for an upload). The standard
+// formatter uses it as-is for the link URL; the obsidian formatter extracts the basename
+// since wikilinks are basename-resolved.
 const standardFormatter: Formatter = {
   imageLink(filename, prefix) {
-    return prefix ? `![${filename}](${prefix}/${filename})` : `![${filename}](${filename})`;
+    return prefix ? `![${basename(filename)}](${prefix}/${filename})` : `![${basename(filename)}](${filename})`;
   },
 
-  artifactLink(filename, _title, prefix) {
+  artifactLink(filename, title, prefix) {
+    const label = title || basename(filename);
     return prefix
-      ? `**[Artifact: ${filename}](${prefix}/${filename})**`
-      : `**[Artifact: ${filename}](${filename})**`;
+      ? `**[Artifact: ${label}](${prefix}/${filename})**`
+      : `**[Artifact: ${label}](${filename})**`;
   },
 
   thinkingBlock(parts) {
@@ -39,11 +49,13 @@ const standardFormatter: Formatter = {
 
 const obsidianFormatter: Formatter = {
   imageLink(filename, _prefix) {
-    return `![[${filename}]]`;
+    return `![[${basename(filename)}]]`;
   },
 
   artifactLink(filename, title, _prefix) {
-    return `**[[${filename}|${title}]]**`;
+    const target = basename(filename);
+    const label = title || target;
+    return target === label ? `**[[${target}]]**` : `**[[${target}|${label}]]**`;
   },
 
   thinkingBlock(parts) {

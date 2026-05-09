@@ -3,13 +3,13 @@
  * No browser dependencies; usable from Node CLI and test harnesses.
  */
 
-import type { Message, MessageBlock, BuildMarkdownOptions, BuildMarkdownContext, BuildMarkdownResult, ConversationResult, RenderedMessage, ArtifactFile, ConversationData, Citation, EnrichmentInput, EnrichmentMessage, EnrichmentBlock, ImageMeta } from "./types.ts";
+import type { Message, MessageBlock, BuildMarkdownOptions, BuildMarkdownContext, BuildMarkdownResult, ConversationResult, RenderedMessage, ConversationData, Citation, EnrichmentInput, EnrichmentMessage, EnrichmentBlock, ImageMeta } from "./types.ts";
 import { getFormatter } from "./formatters.ts";
-import { applyFilenameTemplate, sanitizeForFilename, DEFAULT_CHAT_NAME_TEMPLATE, DEFAULT_ARTIFACT_NAME_TEMPLATE } from "./filename-template.ts";
+import { applyFilenameTemplate, sanitizeForFilename, DEFAULT_CHAT_NAME_TEMPLATE } from "./filename-template.ts";
 
 export * from "./types.ts";
 export { getFormatter } from "./formatters.ts";
-export { applyFilenameTemplate, sanitizeForFilename, DEFAULT_CHAT_NAME_TEMPLATE, DEFAULT_ARTIFACT_NAME_TEMPLATE } from "./filename-template.ts";
+export { applyFilenameTemplate, sanitizeForFilename, DEFAULT_CHAT_NAME_TEMPLATE } from "./filename-template.ts";
 
 // MIME type → file extension mapping
 export const MIME_TO_EXT: Record<string, string> = {
@@ -43,21 +43,9 @@ export const MIME_TO_EXT: Record<string, string> = {
   "application/vnd.ant.react": ".tsx",
 };
 
-// Reverse mapping: file extension → MIME type (for create_file artifacts)
-const EXT_TO_MIME: Record<string, string> = {};
-for (const [mime, ext] of Object.entries(MIME_TO_EXT)) {
-  // First entry wins (e.g. text/x-python beats application/x-python for .py)
-  if (!EXT_TO_MIME[ext]) EXT_TO_MIME[ext] = mime;
-}
-
 export function getExtFromMime(mimeType: string): string {
   if (!mimeType) return ".txt";
   return MIME_TO_EXT[mimeType] || ".txt";
-}
-
-function getMimeFromPath(filePath: string): string {
-  const ext = "." + (filePath.match(/\.([^.]+)$/)?.[1] || "txt");
-  return EXT_TO_MIME[ext] || "text/plain";
 }
 
 export function sanitizeFilename(title: string): string {
@@ -173,127 +161,6 @@ export function toolResultSummary(block: MessageBlock): string {
     return `${count} results`;
   }
   return "ok";
-}
-
-export interface ArtifactInternal {
-  title: string;
-  type: string;
-  content: string;
-  seqNum: number;
-  filename?: string;
-  citations?: Citation[];
-}
-
-export interface ProcessedArtifacts {
-  artifacts: Map<string, ArtifactInternal & { filename: string }>;
-  /** Maps create_file paths → artifact IDs for linking in message rendering */
-  pathToArtifactId: Map<string, string>;
-}
-
-/** Extract first markdown heading from content, or null */
-function extractFirstHeading(content: string): string | null {
-  const match = content.match(/^#\s+(.+)$/m);
-  return match?.[1]?.trim() || null;
-}
-
-export function processArtifacts(
-  messages: Message[],
-  artifactNameTemplate: string = DEFAULT_ARTIFACT_NAME_TEMPLATE,
-  chatVars: { chatTitle: string; chatTitleSanitized: string; chatCreated: string } = { chatTitle: "", chatTitleSanitized: "", chatCreated: "" },
-): ProcessedArtifacts {
-  const artifacts = new Map<string, ArtifactInternal>();
-  const pathToArtifactId = new Map<string, string>();
-  let seqNum = 0;
-
-  for (const msg of messages) {
-    if (msg.sender !== "assistant") continue;
-    for (const block of msg.content || []) {
-      if (block.type !== "tool_use") continue;
-      const input = block.input || {};
-
-      if (block.name === "artifacts") {
-        const id = input.id as string;
-        if (!id) continue;
-
-        if (input.command === "create") {
-          seqNum++;
-          artifacts.set(id, {
-            title: (input.title as string) || "untitled",
-            type: (input.type as string) || "text/plain",
-            content: (input.content as string) || "",
-            seqNum,
-            citations: (input.md_citations as Citation[] | undefined),
-          });
-        } else if (input.command === "update") {
-          const existing = artifacts.get(id);
-          if (existing && input.old_str && input.new_str !== undefined) {
-            existing.content = existing.content.replace(
-              input.old_str as string,
-              input.new_str as string
-            );
-          }
-        } else if (input.command === "rewrite") {
-          const existing = artifacts.get(id);
-          if (existing && input.content !== undefined) {
-            existing.content = input.content as string;
-            if (input.md_citations) existing.citations = input.md_citations as Citation[];
-          }
-        }
-      } else if (block.name === "create_file") {
-        const filePath = input.path as string;
-        const fileText = input.file_text as string;
-        if (!filePath || !fileText) continue;
-
-        // Try to match with an existing artifact by first heading
-        const heading = extractFirstHeading(fileText);
-        let replaced = false;
-        if (heading) {
-          const headingLower = heading.toLowerCase();
-          for (const [id, art] of artifacts) {
-            const titleLower = art.title.toLowerCase();
-            if (titleLower === headingLower ||
-                headingLower.includes(titleLower) ||
-                titleLower.includes(headingLower)) {
-              art.content = fileText;
-              pathToArtifactId.set(filePath, id);
-              replaced = true;
-              break;
-            }
-          }
-        }
-
-        if (!replaced) {
-          seqNum++;
-          const basename = filePath.split("/").pop()?.replace(/\.[^.]+$/, "") || "untitled";
-          const title = heading || basename.replace(/[-_]/g, " ");
-          const id = `file:${filePath}`;
-          artifacts.set(id, {
-            title,
-            type: getMimeFromPath(filePath),
-            content: fileText,
-            seqNum,
-          });
-          pathToArtifactId.set(filePath, id);
-        }
-      }
-    }
-  }
-
-  const result = new Map<string, ArtifactInternal & { filename: string }>();
-  for (const [id, art] of artifacts) {
-    const ext = getExtFromMime(art.type);
-    const base = applyFilenameTemplate(artifactNameTemplate, {
-      seqNum: String(art.seqNum).padStart(2, "0"),
-      title: sanitizeForFilename(art.title),
-      titleSanitized: sanitizeFilename(art.title),
-      chatTitle: chatVars.chatTitle,
-      chatTitleSanitized: chatVars.chatTitleSanitized,
-      chatCreated: chatVars.chatCreated,
-    });
-    const filename = `${base}${ext}`;
-    result.set(id, { ...art, filename });
-  }
-  return { artifacts: result, pathToArtifactId };
 }
 
 export function collectImages(messages: Message[]): ImageMeta[] {
@@ -475,13 +342,11 @@ export function parseConversation(
   const chatTitleMinimal = sanitizeForFilename(title);
   const chatTitleSanitized = sanitizeConversationTitle(data.name);
   const chatCreatedDate = formatDatePrefix(data.created_at);
-  const artifactNameTemplate = context.artifactNameTemplate ?? DEFAULT_ARTIFACT_NAME_TEMPLATE;
   const chatNameTemplate = context.chatNameTemplate ?? DEFAULT_CHAT_NAME_TEMPLATE;
-  const processed = options.includeArtifacts !== false
-    ? processArtifacts(rawMessages, artifactNameTemplate, { chatTitle: chatTitleMinimal, chatTitleSanitized, chatCreated: chatCreatedDate })
-    : { artifacts: new Map<string, ArtifactInternal & { filename: string }>(), pathToArtifactId: new Map<string, string>() };
-  const artifacts = processed.artifacts;
-  const pathToArtifactId = processed.pathToArtifactId;
+  // Map sandbox-file paths to their basename so tool_use callouts can link to files.
+  const sandboxFiles = options.includeArtifacts !== false ? (context.sandboxFiles ?? []) : [];
+  const sandboxFileByPath = new Map<string, { filename: string; relativeWritePath: string }>();
+  for (const f of sandboxFiles) sandboxFileByPath.set(f.path, { filename: f.filename, relativeWritePath: f.relativeWritePath });
 
   let humanCount = 0;
   for (const msg of rawMessages) {
@@ -500,7 +365,7 @@ export function parseConversation(
         exported: exportedDate,
         model: formatModelName(model),
         messages: String(humanCount),
-        artifacts: String(artifacts.size),
+        artifacts: String(sandboxFiles.length),
       });
 
   // Standard format renders <prefix>/<filename> as a relative path from the note.
@@ -584,6 +449,15 @@ export function parseConversation(
       }
 
       let toolCalls: string[] = [];
+      // File paths touched by tool_use blocks in this message (insertion order, deduped),
+      // for emitting wikilinks at end of the assistant message body.
+      const linkedPaths: string[] = [];
+      const linkedSeen = new Set<string>();
+      const linkPath = (p: string | undefined): void => {
+        if (!p || !sandboxFileByPath.has(p) || linkedSeen.has(p)) return;
+        linkedSeen.add(p);
+        linkedPaths.push(p);
+      };
 
       const flushToolCalls = () => {
         if (toolCalls.length === 0) return;
@@ -603,32 +477,17 @@ export function parseConversation(
           }
           bodyLines.push(text.trim());
           bodyLines.push("");
-        } else if (block.type === "tool_use" && block.name === "artifacts" && options.includeArtifacts !== false) {
-          if (isObsidian) flushToolCalls();
-          const id = block.input?.id as string;
-          const art = artifacts.get(id);
-          if (art) {
-            bodyLines.push(fmt.artifactLink(art.filename, art.title, attachmentLinkPrefix));
-            bodyLines.push("");
-          }
-        } else if (block.type === "tool_use" && block.name === "present_files" && options.includeArtifacts !== false) {
-          const filepaths = (block.input?.filepaths as string[]) || [];
-          let anyLinked = false;
-          for (const fp of filepaths) {
-            const artId = pathToArtifactId.get(fp);
-            const art = artId ? artifacts.get(artId) : undefined;
-            if (art) {
-              if (isObsidian) flushToolCalls();
-              bodyLines.push(fmt.artifactLink(art.filename, art.title, attachmentLinkPrefix));
-              bodyLines.push("");
-              anyLinked = true;
+        } else if (block.type === "tool_use" && options.includeToolCalls) {
+          // Every tool_use is rendered as a callout entry — never replayed.
+          toolCalls.push(toolCallSummary(block.name!, block.input || {}));
+          // Collect any file paths the tool touched so we can link them.
+          const input = block.input || {};
+          if (typeof input.path === "string") linkPath(input.path);
+          if (Array.isArray(input.filepaths)) {
+            for (const fp of input.filepaths) {
+              if (typeof fp === "string") linkPath(fp);
             }
           }
-          if (!anyLinked && options.includeToolCalls) {
-            toolCalls.push(toolCallSummary(block.name!, block.input || {}));
-          }
-        } else if (block.type === "tool_use" && block.name !== "artifacts" && options.includeToolCalls) {
-          toolCalls.push(toolCallSummary(block.name!, block.input || {}));
         } else if (block.type === "tool_result" && options.includeToolCalls) {
           if (toolCalls.length > 0) {
             const summary = toolResultSummary(block);
@@ -638,6 +497,18 @@ export function parseConversation(
       }
 
       flushToolCalls();
+
+      // Emit one wikilink per unique file path the tool_use blocks touched, at the end of the message.
+      // The standard formatter resolves the link URL via `<prefix>/<relativeWritePath>` so uploads
+      // (which sit at `<datedTitle>/uploads/foo.png`) point at the right on-disk location;
+      // the obsidian formatter ignores the prefix and resolves by basename.
+      if (options.includeArtifacts !== false) {
+        for (const p of linkedPaths) {
+          const entry = sandboxFileByPath.get(p)!;
+          bodyLines.push(fmt.artifactLink(entry.relativeWritePath, entry.filename, attachmentLinkPrefix));
+          bodyLines.push("");
+        }
+      }
 
       renderedMessages.push({
         role: "assistant",
@@ -649,18 +520,6 @@ export function parseConversation(
 
   const linksSection = citationTracker.renderLinksSection() ?? undefined;
 
-  const artifactFiles: ArtifactFile[] = [];
-  for (const art of artifacts.values()) {
-    let content = art.content;
-    if (art.citations?.length) {
-      const artTracker = new CitationTracker();
-      content = insertCitationLinks(content, art.citations, artTracker);
-      const artLinks = artTracker.renderLinksSection();
-      if (artLinks) content = content.trimEnd() + "\n\n---\n\n" + artLinks + "\n";
-    }
-    artifactFiles.push({ filename: art.filename, content, title: art.title, type: art.type, seqNum: art.seqNum });
-  }
-
   return {
     title,
     url: chatUrl,
@@ -671,10 +530,9 @@ export function parseConversation(
     createdTimestamp: formatTimestamp(data.created_at) ?? formatDatePrefix(data.created_at),
     updatedTimestamp: formatTimestamp(data.updated_at) ?? formatDatePrefix(data.updated_at),
     messageCount: humanCount,
-    artifacts: artifacts.size,
+    artifacts: sandboxFiles.length,
     messages: renderedMessages,
     ...(linksSection ? { linksSection } : {}),
-    artifactFiles,
     datedTitle,
   };
 }
@@ -730,7 +588,6 @@ export function buildMarkdown(
   const result = parseConversation(data, options, context);
   return {
     markdown: renderDefault(result),
-    artifactFiles: result.artifactFiles,
     datedTitle: result.datedTitle,
   };
 }

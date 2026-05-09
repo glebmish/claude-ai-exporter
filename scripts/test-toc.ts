@@ -51,7 +51,6 @@ const result: ConversationResult = {
   messages: Math.max(msgCount, 4), // ensure guard is bypassed even for short files
   artifacts: 0,
   content,
-  artifactFiles: [],
   datedTitle: "",
 };
 

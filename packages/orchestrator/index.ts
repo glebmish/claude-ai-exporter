@@ -3,8 +3,10 @@ import {
   parseConversation,
   renderDefault,
   buildEnrichmentInput,
+  sanitizeConversationTitle,
 } from "../converter/index.ts";
 import type { ConversationData, ConversationResult } from "../converter/index.ts";
+import { sanitizeForFilename } from "../converter/filename-template.ts";
 import {
   findChrome,
   isAlreadyRunning,
@@ -24,6 +26,8 @@ import {
   type ExistingFileInfo,
   type TemplateVarPresence,
 } from "./refresh.ts";
+import { fetchSandboxFiles } from "./sandbox.ts";
+import type { SandboxFileContent } from "./sandbox.ts";
 import { StageError } from "./errors.ts";
 
 export type { FileSystem, ExportOptions, ExportDeps, ExportResult } from "./types.ts";
@@ -106,10 +110,20 @@ async function withCdp<T>(
   }
 }
 
+function computeNamingContext(opts: ExportOptions, data: ConversationData): import("./sandbox.ts").SandboxFileNamingContext {
+  const title = (data.name || "Claude Conversation").replace(/\s*\^archived$/i, "");
+  return {
+    artifactNameTemplate: opts.artifactNameTemplate,
+    chatTitle: sanitizeForFilename(title),
+    chatTitleSanitized: sanitizeConversationTitle(data.name),
+    chatCreated: (data.created_at || "").substring(0, 10),
+  };
+}
+
 async function fetchData(
   opts: ExportOptions,
   deps: ExportDeps,
-): Promise<{ data: ConversationData; imageFiles: ImageFile[] }> {
+): Promise<{ data: ConversationData; imageFiles: ImageFile[]; sandboxFiles: SandboxFileContent[]; sandboxWarnings: string[] }> {
   if (deps.cdpOverride) {
     deps.onStatus?.("Fetching conversation...");
     const data = (await deps.cdpOverride.fetchConversation(opts.conversationId)) as ConversationData;
@@ -117,7 +131,10 @@ async function fetchData(
     const imageFiles = opts.includeImages
       ? await fetchAllImages(deps.cdpOverride, messages, deps.onStatus, deps.signal)
       : [];
-    return { data, imageFiles };
+    const sandbox = opts.includeArtifacts
+      ? await fetchSandboxFiles(deps.cdpOverride, opts.conversationId, computeNamingContext(opts, data), { onStatus: deps.onStatus, signal: deps.signal })
+      : { files: [], warnings: [] };
+    return { data, imageFiles, sandboxFiles: sandbox.files, sandboxWarnings: sandbox.warnings };
   }
   return withCdp(opts, deps, async (cdp) => {
     if (deps.signal?.aborted) throw new Error("Cancelled");
@@ -127,7 +144,10 @@ async function fetchData(
     const imageFiles = opts.includeImages
       ? await fetchAllImages(cdp, messages, deps.onStatus, deps.signal)
       : [];
-    return { data, imageFiles };
+    const sandbox = opts.includeArtifacts
+      ? await fetchSandboxFiles(cdp, opts.conversationId, computeNamingContext(opts, data), { onStatus: deps.onStatus, signal: deps.signal })
+      : { files: [], warnings: [] };
+    return { data, imageFiles, sandboxFiles: sandbox.files, sandboxWarnings: sandbox.warnings };
   });
 }
 
@@ -139,8 +159,8 @@ export async function runExport(opts: ExportOptions, deps: ExportDeps): Promise<
     throw new StageError("usage", "patchInProgress requires existingFilePath or discoverExistingByDatedTitle");
   }
 
-  // Phase 1: fetch conversation + images
-  const { data, imageFiles } = await fetchData(opts, deps);
+  // Phase 1: fetch conversation + images + sandbox files
+  const { data, imageFiles, sandboxFiles, sandboxWarnings } = await fetchData(opts, deps);
   if (deps.signal?.aborted) throw new Error("Cancelled");
 
   // Phase 2: parse
@@ -157,13 +177,13 @@ export async function runExport(opts: ExportOptions, deps: ExportDeps): Promise<
     {
       conversationId: opts.conversationId,
       imageFilenames: imageFiles.map((f) => ({ msgIndex: f.msgIndex, filename: f.filename })),
+      sandboxFiles: sandboxFiles.map((f) => ({ path: f.path, filename: f.filename, relativeWritePath: f.relativeWritePath })),
       ...(opts.chatName !== undefined ? { chatName: opts.chatName } : {}),
       ...(opts.chatNameTemplate !== undefined ? { chatNameTemplate: opts.chatNameTemplate } : {}),
-      ...(opts.artifactNameTemplate !== undefined ? { artifactNameTemplate: opts.artifactNameTemplate } : {}),
     },
   );
 
-  const warnings: string[] = [];
+  const warnings: string[] = [...sandboxWarnings];
 
   // Phase 3: discover/load existing file
   let existingFilePath = opts.existingFilePath;
@@ -213,7 +233,7 @@ export async function runExport(opts: ExportOptions, deps: ExportDeps): Promise<
     : renderDefault(toRender);
 
   // Phase 7: stale-attachment cleanup
-  const hasAttachments = parsed.artifactFiles.length + imageFiles.length > 0;
+  const hasAttachments = sandboxFiles.length + imageFiles.length > 0;
   const attachmentsDirAbs = hasAttachments
     ? deps.fs.joinPath(attachmentsBaseDir, parsed.datedTitle)
     : null;
@@ -234,8 +254,18 @@ export async function runExport(opts: ExportOptions, deps: ExportDeps): Promise<
 
   if (attachmentsDirAbs) {
     await deps.fs.ensureDir(attachmentsDirAbs);
-    for (const art of parsed.artifactFiles) {
-      await deps.fs.writeText(deps.fs.joinPath(attachmentsDirAbs, art.filename), art.content);
+    for (const file of sandboxFiles) {
+      const target = deps.fs.joinPath(attachmentsDirAbs, file.relativeWritePath);
+      const slash = file.relativeWritePath.lastIndexOf("/");
+      if (slash !== -1) {
+        const subDir = file.relativeWritePath.slice(0, slash);
+        await deps.fs.ensureDir(deps.fs.joinPath(attachmentsDirAbs, subDir));
+      }
+      if (file.isBinary && file.binary) {
+        await deps.fs.writeBinary(target, file.binary);
+      } else if (file.text !== undefined) {
+        await deps.fs.writeText(target, file.text);
+      }
     }
     for (const img of imageFiles) {
       const buf = decodeDataUrl(img.dataUrl);
@@ -249,7 +279,7 @@ export async function runExport(opts: ExportOptions, deps: ExportDeps): Promise<
     title: (data.name || "Claude Conversation").replace(/\s*\^archived$/i, ""),
     datedTitle: parsed.datedTitle,
     messageCount: parsed.messageCount,
-    artifactCount: parsed.artifactFiles.length,
+    artifactCount: sandboxFiles.length,
     imageCount: imageFiles.length,
     ...(previousMessageCount !== undefined ? { previousMessageCount } : {}),
     tocReused: decision.tocReused,

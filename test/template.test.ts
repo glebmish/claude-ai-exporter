@@ -28,7 +28,6 @@ const baseResult: ConversationResult = {
       body: "Hi",
     },
   ],
-  artifactFiles: [],
   datedTitle: "2026-01-15_my_chat",
 };
 
