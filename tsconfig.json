@@ -6,8 +6,8 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "declaration": true,
-    "outDir": "dist",
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
     "rootDir": ".",
     "sourceMap": true
   },

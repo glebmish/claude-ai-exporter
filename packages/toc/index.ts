@@ -469,7 +469,7 @@ export async function enrichWithToc(
   let rawKeyTopics: string[];
 
   if (isIncremental) {
-    const inc = agentOutput as { extendLastEntry: boolean; newEntries: AgentTocEntry[]; keyTopics: string[] };
+    const inc = agentOutput as unknown as { extendLastEntry: boolean; newEntries: AgentTocEntry[]; keyTopics: string[] };
     tlog.info(`Incremental output — extendLastEntry: ${inc.extendLastEntry} (informational; range computation is automatic), newEntries: ${inc.newEntries?.length ?? 0}`);
     allEntries = buildIncrementalEntries(result.messages, existingToc!, inc.newEntries ?? []);
     rawKeyTopics = inc.keyTopics ?? [];

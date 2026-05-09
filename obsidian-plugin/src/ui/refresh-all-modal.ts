@@ -1,17 +1,6 @@
 import { App, Modal, TFile, Notice } from "obsidian";
-import { runExport } from "../export";
+import { runExport, type ExportSettings } from "../export";
 import { getConversationIdFromFrontmatter } from "./refresh-button";
-
-interface RefreshAllSettings {
-  exportFolder: string;
-  artifactsFolder: string;
-  chromePath: string;
-  templatePath: string;
-  includeThinking: boolean;
-  includeToolCalls: boolean;
-  enableToc: boolean;
-  claudePath: string;
-}
 
 type EntryStatus = "pending" | "running" | "done" | "error";
 
@@ -25,11 +14,11 @@ interface FileEntry {
 }
 
 export class RefreshAllModal extends Modal {
-  private settings: RefreshAllSettings;
+  private settings: ExportSettings;
   private entries: FileEntry[] = [];
   private abortController: AbortController | null = null;
 
-  constructor(app: App, settings: RefreshAllSettings) {
+  constructor(app: App, settings: ExportSettings) {
     super(app);
     this.settings = settings;
   }

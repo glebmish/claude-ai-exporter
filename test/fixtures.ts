@@ -25,7 +25,12 @@ export interface Message {
   sender: "human" | "assistant";
   content: MessageBlock[];
   created_at: string;
-  attachments?: Array<{ file_name?: string; file_size?: number }>;
+  attachments?: Array<{
+    file_name?: string;
+    file_size?: number;
+    file_type?: string;
+    extracted_content?: string;
+  }>;
   files?: Array<{
     file_uuid?: string;
     file_kind?: string;
