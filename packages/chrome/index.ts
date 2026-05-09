@@ -1,13 +1,19 @@
 import { spawn, ChildProcess, execFileSync } from "node:child_process";
 import { get } from "node:http";
-import { request } from "node:https";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { CookieJar, ChromeOptions } from "./types.ts";
 import log from "./log.ts";
 import { StageError } from "../orchestrator/errors.ts";
 
-export type { Cookie, CookieJar, ChromeOptions } from "./types.ts";
+export type {
+  Cookie,
+  CookieJar,
+  ChromeOptions,
+  SandboxFileList,
+  SandboxFileMetadata,
+  SandboxFilePayload,
+} from "./types.ts";
 export { CdpClient } from "./cdp.ts";
 export { default as log } from "./log.ts";
 
@@ -154,72 +160,3 @@ export function shutdownChrome(child: ChildProcess | null, profileDir?: string):
   }
 }
 
-// ---------------------------------------------------------------------------
-// fetchConversation
-// ---------------------------------------------------------------------------
-
-export interface ConversationResponse {
-  uuid: string;
-  name: string;
-  chat_messages: unknown[];
-  [key: string]: unknown;
-}
-
-export async function fetchConversation(
-  auth: CookieJar,
-  conversationId: string,
-  fetchFn?: (url: string, options: { headers: Record<string, string> }) => Promise<{ status: number; text: string }>
-): Promise<ConversationResponse> {
-  const url = `https://claude.ai/api/organizations/${auth.orgId}/chat_conversations/${conversationId}?tree=True&rendering_mode=raw&render_all_tools=true`;
-  const headers = {
-    cookie: `sessionKey=${auth.sessionKey}`,
-    "anthropic-client-type": "web",
-  };
-
-  if (fetchFn) {
-    const res = await fetchFn(url, { headers });
-    if (res.status === 401 || res.status === 403) {
-      throw new StageError("auth", "Session expired");
-    }
-    if (res.status === 404) {
-      throw new StageError("conversation", `conversation not found (HTTP 404)`);
-    }
-    if (res.status !== 200) {
-      throw new StageError("conversation", `HTTP ${res.status}`);
-    }
-    return JSON.parse(res.text) as ConversationResponse;
-  }
-
-  return new Promise((resolve, reject) => {
-    const parsed = new URL(url);
-    const opts = {
-      hostname: parsed.hostname,
-      path: parsed.pathname + parsed.search,
-      method: "GET",
-      headers,
-    };
-    const req = request(opts, (res) => {
-      let data = "";
-      res.on("data", (chunk: Buffer) => (data += chunk));
-      res.on("end", () => {
-        const status = res.statusCode ?? 0;
-        if (status === 401 || status === 403) {
-          return reject(new StageError("auth", "Session expired"));
-        }
-        if (status === 404) {
-          return reject(new StageError("conversation", `conversation not found (HTTP 404)`));
-        }
-        if (status !== 200) {
-          return reject(new StageError("conversation", `HTTP ${status}`));
-        }
-        try {
-          resolve(JSON.parse(data) as ConversationResponse);
-        } catch (e) {
-          reject(e);
-        }
-      });
-    });
-    req.on("error", reject);
-    req.end();
-  });
-}

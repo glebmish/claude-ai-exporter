@@ -1,6 +1,6 @@
 import { get } from "node:http";
 import WebSocket from "ws";
-import type { Cookie } from "./types.ts";
+import type { Cookie, SandboxFileList, SandboxFilePayload } from "./types.ts";
 import log from "./log.ts";
 import { StageError } from "../orchestrator/errors.ts";
 
@@ -174,6 +174,44 @@ export class CdpClient {
           reader.readAsDataURL(b);
         }))
     `) as Promise<string | null>;
+  }
+
+  async listSandboxFiles(conversationId: string): Promise<SandboxFileList> {
+    return this.evaluate(`
+      (function() {
+        var m = document.cookie.match(/lastActiveOrg=([^;]+)/);
+        if (!m) throw new Error("Not logged in: lastActiveOrg cookie missing");
+        return fetch("/api/organizations/" + m[1] +
+              "/conversations/" + ${JSON.stringify(conversationId)} + "/wiggle/list-files?prefix=",
+              { credentials: "include" })
+          .then(r => r.ok ? r.json() : { success: false, files: [], files_metadata: [] });
+      })()
+    `) as Promise<SandboxFileList>;
+  }
+
+  async downloadSandboxFile(
+    conversationId: string,
+    path: string,
+  ): Promise<SandboxFilePayload | null> {
+    return this.evaluate(`
+      (function() {
+        var m = document.cookie.match(/lastActiveOrg=([^;]+)/);
+        if (!m) throw new Error("Not logged in: lastActiveOrg cookie missing");
+        return fetch("/api/organizations/" + m[1] +
+              "/conversations/" + ${JSON.stringify(conversationId)} +
+              "/wiggle/download-file?path=" + encodeURIComponent(${JSON.stringify(path)}),
+              { credentials: "include" })
+          .then(r => {
+            if (!r.ok) return null;
+            var ct = r.headers.get("content-type") || "application/octet-stream";
+            return r.blob().then(b => new Promise(resolve => {
+              var reader = new FileReader();
+              reader.onloadend = () => resolve({ contentType: ct, dataUrl: reader.result });
+              reader.readAsDataURL(b);
+            }));
+          });
+      })()
+    `) as Promise<SandboxFilePayload | null>;
   }
 
   close(): void {

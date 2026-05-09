@@ -1,4 +1,15 @@
-import type { CdpClient } from "../chrome/index.ts";
+import type { SandboxFileList, SandboxFilePayload } from "../chrome/index.ts";
+
+/**
+ * Methods on `CdpClient` the orchestrator relies on. Defining the surface
+ * explicitly lets stubs construct values without fishing for class methods.
+ */
+export interface CdpFacade {
+  fetchConversation(conversationId: string): Promise<unknown>;
+  fetchImageAsDataUrl(url: string): Promise<string | null>;
+  listSandboxFiles(conversationId: string): Promise<SandboxFileList>;
+  downloadSandboxFile(conversationId: string, path: string): Promise<SandboxFilePayload | null>;
+}
 
 export interface FileSystem {
   /** Returns the file's text contents, or null if the file doesn't exist. */
@@ -57,7 +68,7 @@ export interface ExportDeps {
   onStatus?: (msg: string) => void;
   signal?: AbortSignal;
   /** Test seam — bypass Chrome lifecycle. */
-  cdpOverride?: Pick<CdpClient, "fetchConversation" | "fetchImageAsDataUrl">;
+  cdpOverride?: CdpFacade;
 }
 
 export interface ExportResult {
