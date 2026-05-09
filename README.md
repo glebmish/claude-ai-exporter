@@ -39,7 +39,7 @@ Then build whichever consumer(s) you want:
 ```bash
 npm run build:cli         # → cli/dist/main.mjs
 npm run build:extension   # → extension/dist/
-npm run build:plugin      # → obsidian-plugin/main.js
+npm run build:plugin      # → obsidian-plugin/dist/ (main.js + manifest.json)
 ```
 
 There's also `npm run dev:plugin` for watch-mode builds while iterating on the plugin, and `npm test` to run the test suite.
@@ -97,7 +97,7 @@ After `build:plugin`, copy the plugin files into your vault (**copy, not symlink
 
 ```bash
 mkdir -p <vault>/.obsidian/plugins/claude-exporter
-cp obsidian-plugin/main.js obsidian-plugin/manifest.json <vault>/.obsidian/plugins/claude-exporter/
+cp obsidian-plugin/dist/* <vault>/.obsidian/plugins/claude-exporter/
 ```
 
 Then in **Settings → Community plugins**, enable **Claude Exporter**.

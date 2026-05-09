@@ -8,6 +8,7 @@ skills-lock.json
 dist/
 cli/dist/
 extension/dist/
+obsidian-plugin/dist/
 
 docs/superpowers/
 
