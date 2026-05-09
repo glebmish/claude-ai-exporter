@@ -50,16 +50,13 @@ export interface BuildMarkdownOptions {
 
 export interface BuildMarkdownContext {
   conversationId?: string;
-  /** Pre-computed link prefix for artifacts (e.g. "attachments/2026-01-15_my_chat"). If absent, derived from artifactsFolder + datedTitle when artifactsFolder is set. */
-  artifactLinkPrefix?: string;
-  imageLinkPrefix?: string;
+  /** Override the relative link prefix used for artifact and image links. Defaults to datedTitle (so links resolve to <datedTitle>/<filename> from the note's directory). Ignored by the obsidian formatter, which always emits basename-only wikilinks. */
+  attachmentLinkPrefix?: string;
   imageFilenames?: Array<{ msgIndex: number; filename: string }>;
   /** Literal chat filename — when set, no {{var}} substitution is performed. Takes precedence over chatNameTemplate. */
   chatName?: string;
   chatNameTemplate?: string;
   artifactNameTemplate?: string;
-  /** When set, parseConversation derives artifactLinkPrefix as `${artifactsFolder}/${datedTitle}`. */
-  artifactsFolder?: string;
 }
 
 export interface ArtifactFile {

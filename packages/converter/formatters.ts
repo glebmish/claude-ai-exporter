@@ -5,12 +5,14 @@ function escapeHtml(str: string): string {
 }
 
 const standardFormatter: Formatter = {
-  imageLink(filename, _prefix) {
-    return `![${filename}](images/${filename})`;
+  imageLink(filename, prefix) {
+    return prefix ? `![${filename}](${prefix}/${filename})` : `![${filename}](${filename})`;
   },
 
-  artifactLink(filename, _title, _prefix) {
-    return `**[Artifact: ${filename}](artifacts/${filename})**`;
+  artifactLink(filename, _title, prefix) {
+    return prefix
+      ? `**[Artifact: ${filename}](${prefix}/${filename})**`
+      : `**[Artifact: ${filename}](${filename})**`;
   },
 
   thinkingBlock(parts) {
@@ -36,17 +38,11 @@ const standardFormatter: Formatter = {
 };
 
 const obsidianFormatter: Formatter = {
-  imageLink(filename, prefix) {
-    if (prefix) {
-      return `![[${prefix}/${filename}]]`;
-    }
+  imageLink(filename, _prefix) {
     return `![[${filename}]]`;
   },
 
-  artifactLink(filename, title, prefix) {
-    if (prefix) {
-      return `**[[${prefix}/${filename}|${title}]]**`;
-    }
+  artifactLink(filename, title, _prefix) {
     return `**[[${filename}|${title}]]**`;
   },
 

@@ -41,17 +41,21 @@ describe("formatters", () => {
   describe("standard", () => {
     const fmt = getFormatter("standard");
 
-    it("renders image link as markdown", () => {
+    it("renders image link as markdown with prefix", () => {
       assert.equal(
-        fmt.imageLink("photo.png", undefined),
-        "![photo.png](images/photo.png)"
+        fmt.imageLink("photo.png", "2026-01-15 chat"),
+        "![photo.png](2026-01-15 chat/photo.png)"
       );
     });
 
-    it("renders artifact link as markdown", () => {
+    it("renders image link without prefix as bare basename", () => {
+      assert.equal(fmt.imageLink("photo.png", undefined), "![photo.png](photo.png)");
+    });
+
+    it("renders artifact link as markdown with prefix", () => {
       assert.equal(
-        fmt.artifactLink("01_script.py", "My Script", undefined),
-        "**[Artifact: 01_script.py](artifacts/01_script.py)**"
+        fmt.artifactLink("01_script.py", "My Script", "2026-01-15 chat"),
+        "**[Artifact: 01_script.py](2026-01-15 chat/01_script.py)**"
       );
     });
 
@@ -73,17 +77,14 @@ describe("formatters", () => {
   describe("obsidian", () => {
     const fmt = getFormatter("obsidian");
 
-    it("renders image link as wikilink", () => {
-      assert.equal(
-        fmt.imageLink("photo.png", "attachments/chat"),
-        "![[attachments/chat/photo.png]]"
-      );
+    it("renders image link as basename-only wikilink", () => {
+      assert.equal(fmt.imageLink("photo.png", "attachments/chat"), "![[photo.png]]");
     });
 
-    it("renders artifact link as wikilink", () => {
+    it("renders artifact link as basename-only wikilink", () => {
       assert.equal(
         fmt.artifactLink("01_script.py", "My Script", "attachments/chat"),
-        "**[[attachments/chat/01_script.py|My Script]]**"
+        "**[[01_script.py|My Script]]**"
       );
     });
 
@@ -394,10 +395,10 @@ describe("buildMarkdown", () => {
   describe("artifacts", () => {
     it("included by default with standard links", () => {
       const data = makeConversationWithArtifacts();
-      const { markdown, artifactFiles } = buildMarkdown(data, { includeArtifacts: true });
+      const { markdown, artifactFiles, datedTitle } = buildMarkdown(data, { includeArtifacts: true });
       assert.equal(artifactFiles.length, 1);
       assert.ok(markdown.includes("**[Artifact:"));
-      assert.ok(markdown.includes("](artifacts/"));
+      assert.ok(markdown.includes(`](${datedTitle}/`));
     });
 
     it("applies artifact updates", () => {
@@ -407,14 +408,16 @@ describe("buildMarkdown", () => {
       assert.ok(!artifactFiles[0].content.includes("hello world"));
     });
 
-    it("uses wikilinks in obsidian format", () => {
+    it("uses basename-only wikilinks in obsidian format", () => {
       const data = makeConversationWithArtifacts();
       const { markdown } = buildMarkdown(data, {
         format: "obsidian",
         includeArtifacts: true,
-      }, { artifactLinkPrefix: "attachments/chat" });
-      assert.ok(markdown.includes("**[[attachments/chat/"));
+      }, { attachmentLinkPrefix: "attachments/chat" });
+      // obsidian formatter ignores the prefix; only basename should appear in the wikilink
+      assert.ok(markdown.includes("**[["));
       assert.ok(markdown.includes("|My Script]]**"));
+      assert.ok(!markdown.includes("attachments/chat/"));
     });
   });
 
@@ -476,21 +479,22 @@ describe("buildMarkdown", () => {
   });
 
   describe("images", () => {
-    it("renders standard image links", () => {
+    it("renders standard image links with datedTitle as the link prefix", () => {
       const data = makeConversationWithImages();
-      const { markdown } = buildMarkdown(data, {}, {
+      const { markdown, datedTitle } = buildMarkdown(data, {}, {
         imageFilenames: [{ msgIndex: 0, filename: "01_screenshot.png" }],
       });
-      assert.ok(markdown.includes("![01_screenshot.png](images/01_screenshot.png)"));
+      assert.ok(markdown.includes(`![01_screenshot.png](${datedTitle}/01_screenshot.png)`));
     });
 
-    it("renders obsidian image wikilinks", () => {
+    it("renders obsidian image wikilinks as basename only", () => {
       const data = makeConversationWithImages();
       const { markdown } = buildMarkdown(data, { format: "obsidian" }, {
-        imageLinkPrefix: "attachments/chat",
+        attachmentLinkPrefix: "attachments/chat",
         imageFilenames: [{ msgIndex: 0, filename: "01_screenshot.png" }],
       });
-      assert.ok(markdown.includes("![[attachments/chat/01_screenshot.png]]"));
+      assert.ok(markdown.includes("![[01_screenshot.png]]"));
+      assert.ok(!markdown.includes("attachments/chat/"));
     });
   });
 

@@ -488,7 +488,7 @@ export function parseConversation(
     if (msg.sender === "human") humanCount++;
   }
 
-  // Compute datedTitle early so artifactLinkPrefix can be derived from it
+  // Compute datedTitle early so the attachment link prefix can be derived from it
   const exportedDate = new Date().toISOString().substring(0, 10);
   const datedTitle = context.chatName
     ? (sanitizeForFilename(context.chatName) || "untitled")
@@ -503,11 +503,11 @@ export function parseConversation(
         artifacts: String(artifacts.size),
       });
 
-  // Derive artifactLinkPrefix from artifactsFolder if caller didn't provide one explicitly
-  const artifactLinkPrefix = context.artifactLinkPrefix
-    ?? (context.artifactsFolder ? `${context.artifactsFolder}/${datedTitle}` : undefined);
-  const imageLinkPrefix = context.imageLinkPrefix
-    ?? ((imageFilenames && imageFilenames.length > 0) ? artifactLinkPrefix : undefined);
+  // Standard format renders <prefix>/<filename> as a relative path from the note.
+  // Default prefix is datedTitle: when the orchestrator co-locates attachments with the note,
+  // files live at <outputDir>/<datedTitle>/<filename> and the note at <outputDir>/<datedTitle>.md.
+  // Obsidian formatter ignores the prefix and emits basename-only wikilinks.
+  const attachmentLinkPrefix = context.attachmentLinkPrefix ?? datedTitle;
 
   const chatUrl = `https://claude.ai/chat/${data.uuid || conversationId || "unknown"}`;
   const citationTracker = new CitationTracker();
@@ -527,7 +527,7 @@ export function parseConversation(
 
       const msgImages = (imageFilenames || []).filter(img => img.msgIndex === i);
       for (const img of msgImages) {
-        bodyLines.push(fmt.imageLink(img.filename, imageLinkPrefix));
+        bodyLines.push(fmt.imageLink(img.filename, attachmentLinkPrefix));
         bodyLines.push("");
       }
 
@@ -608,7 +608,7 @@ export function parseConversation(
           const id = block.input?.id as string;
           const art = artifacts.get(id);
           if (art) {
-            bodyLines.push(fmt.artifactLink(art.filename, art.title, artifactLinkPrefix));
+            bodyLines.push(fmt.artifactLink(art.filename, art.title, attachmentLinkPrefix));
             bodyLines.push("");
           }
         } else if (block.type === "tool_use" && block.name === "present_files" && options.includeArtifacts !== false) {
@@ -619,7 +619,7 @@ export function parseConversation(
             const art = artId ? artifacts.get(artId) : undefined;
             if (art) {
               if (isObsidian) flushToolCalls();
-              bodyLines.push(fmt.artifactLink(art.filename, art.title, artifactLinkPrefix));
+              bodyLines.push(fmt.artifactLink(art.filename, art.title, attachmentLinkPrefix));
               bodyLines.push("");
               anyLinked = true;
             }

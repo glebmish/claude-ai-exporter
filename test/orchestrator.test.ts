@@ -90,7 +90,7 @@ describe("runExport — attachments layout", () => {
     ],
   };
 
-  it("case 2: attachments → note at <output>/<datedTitle>.md, artifacts under <output>/<datedTitle>/artifacts/", async () => {
+  it("case 2: attachments → note at <output>/<datedTitle>.md, artifacts flat under <output>/<datedTitle>/", async () => {
     const fs = new InMemoryFs();
     const cdp = makeStubCdp({ conversation: conversationWithArtifact });
     const result = await runExport(baseOpts, { fs, cdpOverride: cdp });
@@ -102,8 +102,10 @@ describe("runExport — attachments layout", () => {
     assert.ok(result.attachmentsDir);
     assert.match(result.attachmentsDir!, /^out\//);
     const files = fs.list();
-    const artFiles = files.filter((f) => f.includes("/artifacts/"));
+    // Artifacts live flat directly under the dated-title folder — no artifacts/ subdir
+    const artFiles = files.filter((f) => f.startsWith(result.attachmentsDir + "/"));
     assert.equal(artFiles.length, 1);
+    assert.ok(!artFiles[0].includes("/artifacts/"), `artifact unexpectedly nested in subdir: ${artFiles[0]}`);
   });
 
   it("case 3: --attachments-dir override puts attachments under override", async () => {
@@ -113,8 +115,9 @@ describe("runExport — attachments layout", () => {
     assert.match(result.filePath, /^out\/.+\.md$/);
     assert.match(result.attachmentsDir!, /^att\//);
     const files = fs.list();
-    assert.ok(files.some((f) => f.startsWith("att/") && f.includes("/artifacts/")));
-    assert.ok(!files.some((f) => f.startsWith("out/") && f.includes("/artifacts/")));
+    // Files under att/ are flat (not under att/.../artifacts/) and never under out/
+    assert.ok(files.some((f) => f.startsWith("att/") && !f.includes("/artifacts/")));
+    assert.ok(!files.some((f) => f.startsWith("out/") && f !== result.filePath));
   });
 });
 
@@ -271,7 +274,7 @@ describe("runExport — refresh path", () => {
   it("case 14: stale-attachment cleanup with --existing", async () => {
     const fs = new InMemoryFs();
     const cdp = makeStubCdp({ conversation: baseConversation });
-    fs.preset("out/2026-01-15 Test Chat/artifacts/old-stale.md", "stale");
+    fs.preset("out/2026-01-15 Test Chat/old-stale.md", "stale");
     fs.preset("out/2026-01-15 Test Chat.md", buildExistingMarkdown({
       title: "Test Chat",
       lastCoveredMsg: 1,
@@ -281,7 +284,7 @@ describe("runExport — refresh path", () => {
       { ...baseOpts, existingFilePath: "out/2026-01-15 Test Chat.md" },
       { fs, cdpOverride: cdp },
     );
-    assert.equal(await fs.exists("out/2026-01-15 Test Chat/artifacts/old-stale.md"), false);
+    assert.equal(await fs.exists("out/2026-01-15 Test Chat/old-stale.md"), false);
   });
 
   it("case 15: image fetch returning null is skipped without failure", async () => {

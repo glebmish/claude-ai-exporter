@@ -153,7 +153,6 @@ export async function runExport(opts: ExportOptions, deps: ExportDeps): Promise<
     },
     {
       conversationId: opts.conversationId,
-      artifactsFolder: attachmentsBaseDir,
       imageFilenames: imageFiles.map((f) => ({ msgIndex: f.msgIndex, filename: f.filename })),
       ...(opts.chatName !== undefined ? { chatName: opts.chatName } : {}),
       ...(opts.chatNameTemplate !== undefined ? { chatNameTemplate: opts.chatNameTemplate } : {}),
@@ -232,20 +231,12 @@ export async function runExport(opts: ExportOptions, deps: ExportDeps): Promise<
 
   if (attachmentsDirAbs) {
     await deps.fs.ensureDir(attachmentsDirAbs);
-    const artifactsSubdir = deps.fs.joinPath(attachmentsDirAbs, "artifacts");
-    const imagesSubdir = deps.fs.joinPath(attachmentsDirAbs, "images");
-    if (parsed.artifactFiles.length > 0) {
-      await deps.fs.ensureDir(artifactsSubdir);
-      for (const art of parsed.artifactFiles) {
-        await deps.fs.writeText(deps.fs.joinPath(artifactsSubdir, art.filename), art.content);
-      }
+    for (const art of parsed.artifactFiles) {
+      await deps.fs.writeText(deps.fs.joinPath(attachmentsDirAbs, art.filename), art.content);
     }
-    if (imageFiles.length > 0) {
-      await deps.fs.ensureDir(imagesSubdir);
-      for (const img of imageFiles) {
-        const buf = decodeDataUrl(img.dataUrl);
-        if (buf) await deps.fs.writeBinary(deps.fs.joinPath(imagesSubdir, img.filename), buf);
-      }
+    for (const img of imageFiles) {
+      const buf = decodeDataUrl(img.dataUrl);
+      if (buf) await deps.fs.writeBinary(deps.fs.joinPath(attachmentsDirAbs, img.filename), buf);
     }
   }
 
