@@ -82,6 +82,11 @@ Flags:
 | `--chrome-path <path>` | Path to Chrome binary (env: `CHROME_PATH`) |
 | `--chrome-port <n>` | CDP port (default 9222) |
 
+Constraints:
+
+- `--chat-name` and `--chat-name-template` are mutually exclusive.
+- `--template` cannot be combined with `--toc` or `--topics` — when using a template, declare enrichment via the `{{toc}}`, `{{tocWithRecap}}`, `{{keyTopics}}`, or `{{keyTopicsFlat}}` placeholders in the template body instead.
+
 ### Chrome extension
 
 After `build:extension`:
@@ -134,8 +139,6 @@ The chat note filename and artifact filenames are also templated. Configurable i
 | **Artifact file name** | `{{seqNum}} {{title}}` | `{{seqNum}}`, `{{title}}`, `{{titleSanitized}}`, `{{chatTitle}}`, `{{chatTitleSanitized}}`, `{{chatCreated}}` |
 
 `{{title}}` (and `{{chatTitle}}`) preserve case and spaces — only filesystem-unsafe characters are stripped. Defaults produce Obsidian-style names like `2026-04-28 Project Roadmap.md` and `01 Setup Guide.md`.
-
-For the legacy lowercased-and-underscored form (e.g. `2026-04-28_interview_process_research`), use `{{titleSanitized}}` / `{{chatTitleSanitized}}`.
 
 Extensions are appended automatically. Unknown variables (e.g. typos like `{{ttile}}`) are left literal in the resulting filename so mistakes are visible. If the template renders empty, the filename falls back to `untitled`.
 
