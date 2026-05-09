@@ -2,6 +2,7 @@ import { get } from "node:http";
 import WebSocket from "ws";
 import type { Cookie } from "./types.ts";
 import log from "./log.ts";
+import { StageError } from "../orchestrator/errors.ts";
 
 function httpGetJson(url: string): Promise<unknown> {
   return new Promise((resolve, reject) => {
@@ -71,11 +72,11 @@ export class CdpClient {
     }>;
     log("CDP targets:", targets.map(t => t.type));
     const page = targets.find((t) => t.type === "page");
-    if (!page) throw new Error("No browser page found");
+    if (!page) throw new StageError("cdp", "No browser page found");
 
     const wsUrl = page.webSocketDebuggerUrl;
     if (!wsUrl?.startsWith("ws://localhost:")) {
-      throw new Error(`Unexpected CDP WebSocket URL: ${wsUrl}`);
+      throw new StageError("cdp", `Unexpected CDP WebSocket URL: ${wsUrl}`);
     }
     log("Connecting to:", wsUrl);
     return new Promise((resolve, reject) => {

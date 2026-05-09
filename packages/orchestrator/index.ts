@@ -24,6 +24,7 @@ import {
   type ExistingFileInfo,
   type TemplateVarPresence,
 } from "./refresh.ts";
+import { StageError } from "./errors.ts";
 
 export type { FileSystem, ExportOptions, ExportDeps, ExportResult } from "./types.ts";
 export { applyTemplate, findExportedKey, patchInProgress } from "./template.ts";
@@ -31,6 +32,8 @@ export { fetchAllImages, decodeDataUrl } from "./images.ts";
 export type { ImageFile } from "./images.ts";
 export { loadExistingFile, applyInProgressPatch, decideEnrichment } from "./refresh.ts";
 export type { ExistingFileInfo, EnrichmentDecision, TemplateVarPresence, EnrichmentFlags } from "./refresh.ts";
+export { StageError } from "./errors.ts";
+export type { ErrorStage } from "./errors.ts";
 
 const TOC_VAR_RE = /\{\{(toc|tocWithRecap|keyTopics|keyTopicsFlat)\}\}/g;
 
@@ -130,10 +133,10 @@ async function fetchData(
 
 export async function runExport(opts: ExportOptions, deps: ExportDeps): Promise<ExportResult> {
   if (opts.chatName !== undefined && opts.chatNameTemplate !== undefined) {
-    throw new Error("chatName and chatNameTemplate are mutually exclusive");
+    throw new StageError("usage", "chatName and chatNameTemplate are mutually exclusive");
   }
   if (opts.patchInProgress && !opts.existingFilePath && !opts.discoverExistingByDatedTitle) {
-    throw new Error("patchInProgress requires existingFilePath or discoverExistingByDatedTitle");
+    throw new StageError("usage", "patchInProgress requires existingFilePath or discoverExistingByDatedTitle");
   }
 
   // Phase 1: fetch conversation + images

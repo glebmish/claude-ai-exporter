@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { CookieJar, ChromeOptions } from "./types.ts";
 import log from "./log.ts";
+import { StageError } from "../orchestrator/errors.ts";
 
 export type { Cookie, CookieJar, ChromeOptions } from "./types.ts";
 export { CdpClient } from "./cdp.ts";
@@ -75,8 +76,9 @@ export function findChrome(customPath?: string): string {
       log("Not found:", candidate);
     }
   }
-  throw new Error(
-    "Chrome not found. Install Chrome or set the path in plugin settings."
+  throw new StageError(
+    "cdp",
+    "Chrome not found. Install Chrome or set the path in plugin settings.",
   );
 }
 
@@ -130,7 +132,7 @@ export async function waitForReady(opts?: { signal?: AbortSignal; port?: number;
     }
     await new Promise((r) => setTimeout(r, 1000));
   }
-  throw new Error(`Chrome did not become ready on port ${port} within ${opts?.timeoutMs ?? 30_000}ms`);
+  throw new StageError("cdp", `Chrome did not become ready on port ${port} within ${opts?.timeoutMs ?? 30_000}ms`);
 }
 
 export function shutdownChrome(child: ChildProcess | null, profileDir?: string): void {
@@ -177,10 +179,13 @@ export async function fetchConversation(
   if (fetchFn) {
     const res = await fetchFn(url, { headers });
     if (res.status === 401 || res.status === 403) {
-      throw new Error("Session expired");
+      throw new StageError("auth", "Session expired");
+    }
+    if (res.status === 404) {
+      throw new StageError("conversation", `conversation not found (HTTP 404)`);
     }
     if (res.status !== 200) {
-      throw new Error(`HTTP ${res.status}`);
+      throw new StageError("conversation", `HTTP ${res.status}`);
     }
     return JSON.parse(res.text) as ConversationResponse;
   }
@@ -199,10 +204,13 @@ export async function fetchConversation(
       res.on("end", () => {
         const status = res.statusCode ?? 0;
         if (status === 401 || status === 403) {
-          return reject(new Error("Session expired"));
+          return reject(new StageError("auth", "Session expired"));
+        }
+        if (status === 404) {
+          return reject(new StageError("conversation", `conversation not found (HTTP 404)`));
         }
         if (status !== 200) {
-          return reject(new Error(`HTTP ${status}`));
+          return reject(new StageError("conversation", `HTTP ${status}`));
         }
         try {
           resolve(JSON.parse(data) as ConversationResponse);

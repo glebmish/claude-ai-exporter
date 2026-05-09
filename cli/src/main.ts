@@ -1,19 +1,23 @@
 import { readFileSync } from "node:fs";
-import { runExport } from "../../packages/orchestrator/index.ts";
+import { runExport, StageError } from "../../packages/orchestrator/index.ts";
 import { log } from "../../packages/chrome/index.ts";
 import { parseArgv } from "./argv.ts";
 import { prosePresenter, jsonPresenter, type Presenter } from "./presenter.ts";
 import { NodeFs } from "./fs-node.ts";
 
 function classifyError(e: unknown): { stage: string; message: string } {
-  const msg = e instanceof Error ? e.message : String(e);
-  if (msg === "Cancelled") return { stage: "cancelled", message: msg };
-  if (/Chrome|CDP|websocket|connect/i.test(msg)) return { stage: "cdp", message: msg };
-  if (/conversation|404/i.test(msg)) return { stage: "conversation", message: msg };
-  if (/EACCES|ENOENT|ENOSPC/i.test(msg)) return { stage: "filesystem", message: msg };
-  if (/login|cookie|auth/i.test(msg)) return { stage: "auth", message: msg };
-  if (/mutually exclusive|requires/i.test(msg)) return { stage: "usage", message: msg };
-  return { stage: "unknown", message: msg };
+  // "Cancelled" is a sentinel string thrown from many AbortSignal check sites; keep it
+  // as a separate stage rather than promoting StageError everywhere.
+  if (e instanceof Error && e.message === "Cancelled") return { stage: "cancelled", message: e.message };
+  if (e instanceof StageError) return { stage: e.stage, message: e.message };
+  // Node fs errors carry a structured `code` we can map without inspecting prose.
+  const code = (e as NodeJS.ErrnoException | undefined)?.code;
+  if (typeof code === "string" && /^E[A-Z]+$/.test(code)) {
+    if (code === "EACCES" || code === "EPERM" || code === "ENOENT" || code === "ENOSPC" || code === "EISDIR" || code === "ENOTDIR") {
+      return { stage: "filesystem", message: e instanceof Error ? e.message : String(e) };
+    }
+  }
+  return { stage: "unknown", message: e instanceof Error ? e.message : String(e) };
 }
 
 async function main(): Promise<number> {

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
-import { runExport } from "../packages/orchestrator/index.ts";
+import { runExport, StageError } from "../packages/orchestrator/index.ts";
 import { InMemoryFs } from "./helpers/in-memory-fs.ts";
 import { makeStubCdp } from "./helpers/stub-cdp.ts";
 
@@ -39,6 +39,26 @@ const baseOpts = {
   topics: false,
   patchInProgress: false,
 };
+
+describe("runExport — usage validation", () => {
+  it("throws a StageError(usage) when chatName and chatNameTemplate are both set", async () => {
+    const fs = new InMemoryFs();
+    const cdp = makeStubCdp({ conversation: baseConversation });
+    await assert.rejects(
+      runExport({ ...baseOpts, chatName: "x", chatNameTemplate: "y" }, { fs, cdpOverride: cdp }),
+      (e: unknown) => e instanceof StageError && e.stage === "usage",
+    );
+  });
+
+  it("throws a StageError(usage) when patchInProgress lacks an existing-file pointer", async () => {
+    const fs = new InMemoryFs();
+    const cdp = makeStubCdp({ conversation: baseConversation });
+    await assert.rejects(
+      runExport({ ...baseOpts, patchInProgress: true }, { fs, cdpOverride: cdp }),
+      (e: unknown) => e instanceof StageError && e.stage === "usage",
+    );
+  });
+});
 
 describe("runExport — basic export", () => {
   it("case 1: fresh export, no attachments → only the .md is written", async () => {
