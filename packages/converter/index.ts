@@ -134,32 +134,66 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Tool callouts are collapsible (`> [!todo]- tool use (N)`), so the body can
+// be long without harming readability. Default per-value cap is generous; only
+// "content payload" keys (full file bodies, str-replace patches, artifact
+// content) get a hard cap so a single create_file doesn't dump thousands of
+// lines into the chat note. The total cap is a safety net against pathological
+// tool calls only.
+const HUGE_CONTENT_KEYS = new Set([
+  "file_text",
+  "content",
+  "old_str",
+  "new_str",
+  "body",
+]);
+const PER_VALUE_LIMIT = 500;
+const HUGE_VALUE_LIMIT = 100;
+const TOTAL_SUMMARY_LIMIT = 2000;
+const RESULT_LIMIT = 500;
+
+function flattenWhitespace(v: string): string {
+  // Tool callouts emit one `> ` line per call (escapeHtml is the only further
+  // transform); embedded newlines would break out of the callout block.
+  return v.replace(/\s+/g, " ").trim();
+}
+
+function truncateInputValue(key: string, value: string): string {
+  const limit = HUGE_CONTENT_KEYS.has(key) ? HUGE_VALUE_LIMIT : PER_VALUE_LIMIT;
+  const flat = flattenWhitespace(value);
+  return flat.length > limit ? `${flat.substring(0, limit)}…` : flat;
+}
+
 export function toolCallSummary(name: string, input: Record<string, unknown>): string {
   if (name === "conversation_search") {
-    return `conversation_search: "${(input.query as string) || "?"}"`;
+    return `conversation_search: "${flattenWhitespace((input.query as string) || "?")}"`;
   }
   if (name === "web_search") {
-    return `web_search: "${(input.query as string) || "?"}"`;
+    return `web_search: "${flattenWhitespace((input.query as string) || "?")}"`;
   }
   if (name === "web_fetch") {
-    return `web_fetch: ${(input.url as string) || "?"}`;
+    return `web_fetch: ${flattenWhitespace((input.url as string) || "?")}`;
   }
   if (name === "launch_extended_search_task") {
-    const cmd = ((input.command as string) || "?").substring(0, 80);
+    // The "command" here is the user's research prompt — content, not an opaque
+    // tool argument. Don't truncate it the way we truncate file bodies.
+    const cmd = flattenWhitespace((input.command as string) || "?");
     return `deep_research: "${cmd}"`;
   }
   // Compact single-line summary for any other tool
   const parts: string[] = [];
   for (const [k, v] of Object.entries(input || {})) {
     if (typeof v === "string" && v) {
-      parts.push(`${k}="${v.substring(0, 50)}"`);
+      parts.push(`${k}="${truncateInputValue(k, v)}"`);
     } else if (Array.isArray(v)) {
       parts.push(`${k}=[${v.length}]`);
     }
   }
   if (parts.length > 0) {
     const summary = parts.join(", ");
-    return summary.length > 100 ? `${name}: ${summary.substring(0, 100)}…` : `${name}: ${summary}`;
+    return summary.length > TOTAL_SUMMARY_LIMIT
+      ? `${name}: ${summary.substring(0, TOTAL_SUMMARY_LIMIT)}…`
+      : `${name}: ${summary}`;
   }
   return name;
 }
@@ -170,8 +204,8 @@ export function toolResultSummary(block: MessageBlock): string {
   if (Array.isArray(content) && content.length > 0) {
     const text = content[0]?.text || "";
     if (text === "OK" || text === "ok") return "ok";
-    const truncated = text.length <= 40 ? text : `${text.substring(0, 40)}...`;
-    return truncated;
+    const flat = flattenWhitespace(text);
+    return flat.length > RESULT_LIMIT ? `${flat.substring(0, RESULT_LIMIT)}…` : flat;
   }
   if (block.display_content?.content) {
     const count = block.display_content.content.length;

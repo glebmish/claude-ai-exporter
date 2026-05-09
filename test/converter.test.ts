@@ -269,6 +269,28 @@ describe("utility functions", () => {
       assert.ok(result.includes("items=[3]"));
       assert.ok(result.includes('name="test"'));
     });
+    it("renders deep_research command in full (callouts are collapsible — keep the prompt)", () => {
+      const longPrompt = "Research how sourdough fermentation behaves at different altitudes and hydration ratios, including microbial activity across temperature ranges, ideal proofing windows, and how local water mineral content affects flavor and rise development.";
+      const result = toolCallSummary("launch_extended_search_task", { command: longPrompt });
+      assert.equal(result, `deep_research: "${longPrompt}"`);
+    });
+    it("does NOT truncate ordinary string args at 50 chars (was the old limit)", () => {
+      const desc = "A reasonably long description that is clearly more than fifty characters total";
+      const result = toolCallSummary("custom_tool", { description: desc, path: "/tmp/foo" });
+      assert.ok(result.includes(desc), `description must be preserved in full, got: ${result}`);
+    });
+    it("DOES truncate huge content payload keys (file_text) so a create_file doesn't dump the whole file", () => {
+      const file_text = "x".repeat(2000);
+      const result = toolCallSummary("create_file", { path: "/tmp/x", file_text });
+      assert.ok(result.length < 300, `expected file_text to be heavily truncated, got length ${result.length}`);
+      assert.ok(result.includes("…"));
+      assert.ok(result.includes("/tmp/x"));
+    });
+    it("flattens newlines so the callout stays single-line", () => {
+      const result = toolCallSummary("custom_tool", { description: "line one\nline two\nline three" });
+      assert.ok(!result.includes("\n"));
+      assert.ok(result.includes("line one line two line three"));
+    });
   });
 
   describe("toolResultSummary", () => {
@@ -281,10 +303,16 @@ describe("utility functions", () => {
         "ok"
       );
     });
-    it("truncates long results", () => {
-      const long = "x".repeat(100);
+    it("preserves typical short success messages in full (was being truncated to 40 chars)", () => {
+      const text = "File created successfully: /home/claude/foo.md";
+      const result = toolResultSummary({ type: "tool_result", content: [{ text }] });
+      assert.equal(result, text);
+    });
+    it("truncates very long results at the new generous cap", () => {
+      const long = "x".repeat(2000);
       const result = toolResultSummary({ type: "tool_result", content: [{ text: long }] });
-      assert.ok(result.length <= 45);
+      assert.ok(result.length <= 510, `expected result to fit within ~RESULT_LIMIT, got ${result.length}`);
+      assert.ok(result.endsWith("…"));
     });
   });
 });
