@@ -186,4 +186,22 @@ describe("parseArgv", () => {
     const r = parseArgv(["12345678-1234-1234-1234-123456789012", "--chrome-port", "abc"]);
     assert.equal(r.kind, "error");
   });
+
+  it("--chrome-port rejects decimals, hex, and scientific notation", () => {
+    for (const bad of ["9.5", "0x1234", "9e3", " 9222"]) {
+      const r = parseArgv(["12345678-1234-1234-1234-123456789012", "--chrome-port", bad]);
+      assert.equal(r.kind, "error", `expected error for --chrome-port ${JSON.stringify(bad)}`);
+    }
+  });
+
+  it("--chrome-port rejects values out of range", () => {
+    const r = parseArgv(["12345678-1234-1234-1234-123456789012", "--chrome-port", "70000"]);
+    assert.equal(r.kind, "error");
+  });
+
+  it("rejects a value that is itself a flag", () => {
+    const r = parseArgv(["12345678-1234-1234-1234-123456789012", "--output-dir", "--json"]);
+    assert.equal(r.kind, "error");
+    if (r.kind === "error") assert.match(r.message, /flag-like token/);
+  });
 });

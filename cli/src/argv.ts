@@ -69,7 +69,11 @@ function err(message: string): ArgvResult {
 
 function takeValue(args: string[], i: number, name: string): string | { errMsg: string } {
   if (i + 1 >= args.length) return { errMsg: `${name} requires a value` };
-  return args[i + 1];
+  const v = args[i + 1];
+  if (v.startsWith("--")) {
+    return { errMsg: `${name} requires a value (got flag-like token "${v}"; use ${name}=<value> if the value really starts with --)` };
+  }
+  return v;
 }
 
 export function parseArgv(args: string[]): ArgvResult {
@@ -134,8 +138,11 @@ export function parseArgv(args: string[]): ArgvResult {
       o.chromePath = v; i++;
     } else if (a === "--chrome-port") {
       const v = takeValue(args, i, a); if (typeof v !== "string") return err(v.errMsg);
+      // Restrict to plain decimal digits — Number() otherwise accepts hex (0x...),
+      // scientific notation (1e3), decimals (9.5), and leading whitespace.
+      if (!/^\d+$/.test(v)) return err(`--chrome-port must be a positive integer (1-65535)`);
       const n = Number(v);
-      if (!Number.isFinite(n) || n <= 0) return err(`--chrome-port must be a positive integer`);
+      if (n <= 0 || n > 65535) return err(`--chrome-port must be a positive integer (1-65535)`);
       o.chromePort = n; i++;
     } else if (a.startsWith("-")) {
       return err(`unknown flag: ${a}\n\n${USAGE}`);
