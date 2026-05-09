@@ -35,7 +35,13 @@ export class CdpClient {
   private constructor(ws: WebSocket) {
     this.ws = ws;
     this.ws.on("message", (raw: WebSocket.RawData) => {
-      const msg: CdpResponse = JSON.parse(raw.toString());
+      let msg: CdpResponse;
+      try {
+        msg = JSON.parse(raw.toString());
+      } catch (e) {
+        log("CDP: ignoring non-JSON frame:", e);
+        return;
+      }
       if (msg.id == null) return;
       const p = this.pending.get(msg.id);
       if (p) {
@@ -119,7 +125,13 @@ export class CdpClient {
       }, timeoutMs);
 
       const handler = (raw: WebSocket.RawData) => {
-        const msg = JSON.parse(raw.toString());
+        let msg: { method?: string };
+        try {
+          msg = JSON.parse(raw.toString());
+        } catch (e) {
+          log("CDP: ignoring non-JSON frame in navigateTo:", e);
+          return;
+        }
         if (msg.method === "Page.loadEventFired") {
           clearTimeout(timer);
           this.ws.off("message", handler);

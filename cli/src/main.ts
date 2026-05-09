@@ -59,10 +59,14 @@ async function main(): Promise<number> {
     ...(enrichmentFromTemplate ?? {}),
   };
 
+  const ac = new AbortController();
+  const onSigint = () => ac.abort();
+  process.on("SIGINT", onSigint);
   try {
     const result = await runExport(opts, {
       fs,
       onStatus: (m) => presenter.status(m),
+      signal: ac.signal,
     });
     presenter.result(result);
     return 0;
@@ -70,6 +74,8 @@ async function main(): Promise<number> {
     const { stage, message } = classifyError(e);
     presenter.error(stage, message);
     return stage === "cancelled" ? 130 : 1;
+  } finally {
+    process.off("SIGINT", onSigint);
   }
 }
 

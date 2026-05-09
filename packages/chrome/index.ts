@@ -111,11 +111,12 @@ export async function isAlreadyRunning(port?: number): Promise<boolean> {
   }
 }
 
-export async function waitForReady(opts?: { signal?: AbortSignal; port?: number }): Promise<void> {
+export async function waitForReady(opts?: { signal?: AbortSignal; port?: number; timeoutMs?: number }): Promise<void> {
   const port = opts?.port ?? DEFAULT_CDP_PORT;
   const signal = opts?.signal;
+  const deadline = Date.now() + (opts?.timeoutMs ?? 30_000);
   let attempts = 0;
-  while (true) {
+  while (Date.now() < deadline) {
     if (signal?.aborted) throw new Error("Cancelled");
     attempts++;
     try {
@@ -129,6 +130,7 @@ export async function waitForReady(opts?: { signal?: AbortSignal; port?: number 
     }
     await new Promise((r) => setTimeout(r, 1000));
   }
+  throw new Error(`Chrome did not become ready on port ${port} within ${opts?.timeoutMs ?? 30_000}ms`);
 }
 
 export function shutdownChrome(child: ChildProcess | null, profileDir?: string): void {
