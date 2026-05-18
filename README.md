@@ -31,8 +31,9 @@ All three share the same converter, so output is consistent across them.
 
 - Markdown rendering in two flavors: **standard** (plain) and **Obsidian** (callouts, wikilink anchors)
 - Artifact extraction — each artifact written as a separate file, linked from the note
-- Inline citations + a consolidated links section
-- Tool use rendered as a collapsible callout so it doesn't dominate the note
+- Inline citations + a consolidated links section, with each link annotated by the tool that surfaced it (`web_search`, `web_fetch`, …)
+- Tool use rendered as a collapsible callout, with execution duration and MCP integration name when the conversation API exposes them
+- Active-branch filtering — when you edited a message and retried, only the branch you actually kept ends up in the exported note
 - Template system with named variables — customize the note layout without touching code
 - Optional AI enrichment — table of contents, per-topic recap, and key topics
 - Incremental re-export — only new messages are rendered; existing AI-generated TOC entries are reused
