@@ -6,6 +6,7 @@ import {
   sanitizeConversationTitle,
   stripArchivePluginMarkers,
   replayResearchArtifacts,
+  selectActiveLineage,
 } from "../converter/index.ts";
 import type { ConversationData, ConversationResult } from "../converter/index.ts";
 import { sanitizeForFilename } from "../converter/filename-template.ts";
@@ -148,7 +149,8 @@ async function fetchData(
   if (deps.cdpOverride) {
     deps.onStatus?.("Fetching conversation...");
     const data = (await deps.cdpOverride.fetchConversation(opts.conversationId)) as ConversationData;
-    const messages = data.chat_messages || [];
+    data.chat_messages = selectActiveLineage(data);
+    const messages = data.chat_messages;
     const imageFiles = opts.includeImages
       ? await fetchAllImages(deps.cdpOverride, messages, deps.onStatus, deps.signal)
       : [];
@@ -164,7 +166,8 @@ async function fetchData(
     if (deps.signal?.aborted) throw new Error("Cancelled");
     deps.onStatus?.("Fetching conversation...");
     const data = (await cdp.fetchConversation(opts.conversationId)) as ConversationData;
-    const messages = data.chat_messages || [];
+    data.chat_messages = selectActiveLineage(data);
+    const messages = data.chat_messages;
     const imageFiles = opts.includeImages
       ? await fetchAllImages(cdp, messages, deps.onStatus, deps.signal)
       : [];

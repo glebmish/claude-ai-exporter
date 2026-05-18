@@ -3,6 +3,8 @@ export interface Citation {
   url: string;
   start_index: number;
   end_index: number;
+  /** Tool that produced this citation (e.g. "web_search", "web_fetch", "conversation_search"). */
+  origin_tool_name?: string;
 }
 
 export interface MessageBlock {
@@ -15,6 +17,15 @@ export interface MessageBlock {
   is_error?: boolean;
   display_content?: { content: unknown[] };
   citations?: Citation[];
+  /** Block ID; on tool_use blocks this is what tool_result.tool_use_id points back to. */
+  id?: string;
+  /** Present on tool_result blocks. Joins back to the matching tool_use.id. */
+  tool_use_id?: string;
+  /** MCP integration name when a tool_use comes from an external integration. */
+  integration_name?: string;
+  /** ISO 8601 timestamps bracketing tool execution. */
+  start_timestamp?: string;
+  stop_timestamp?: string;
 }
 
 export interface Message {
@@ -22,6 +33,8 @@ export interface Message {
   sender: "human" | "assistant";
   content: MessageBlock[];
   created_at: string;
+  /** Parent in the message tree. Set when the conversation API was called with `tree=true`. */
+  parent_message_uuid?: string | null;
   attachments?: Array<{ file_name?: string; file_size?: number; file_type?: string; extracted_content?: string }>;
   files?: Array<{
     file_uuid?: string;
@@ -39,6 +52,9 @@ export interface ConversationData {
   created_at: string;
   updated_at: string;
   chat_messages: Message[];
+  /** UUID of the leaf of the active conversation branch. Used to filter chat_messages
+   * down to the lineage the user last saw; abandoned branches share this array. */
+  current_leaf_message_uuid?: string;
 }
 
 export interface BuildMarkdownOptions {

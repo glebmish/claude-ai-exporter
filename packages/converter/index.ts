@@ -164,6 +164,34 @@ function truncateInputValue(key: string, value: string): string {
   return flat.length > limit ? `${flat.substring(0, limit)}…` : flat;
 }
 
+/** Compact duration like "120ms" / "3.4s" / "5m" from ISO timestamps. */
+function formatToolDuration(start?: string, stop?: string): string | null {
+  if (!start || !stop) return null;
+  const ms = Date.parse(stop) - Date.parse(start);
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.round(ms / 60_000)}m`;
+}
+
+/**
+ * Wrap a base tool-call summary with integration name (if the tool came from an MCP
+ * integration) and a duration tag (if the block carries `start_timestamp` and
+ * `stop_timestamp`). Both annotations are observed-but-optional on the wire.
+ */
+export function decorateToolCall(
+  block: MessageBlock,
+  baseSummary: string,
+): string {
+  let out = baseSummary;
+  if (block.integration_name) {
+    out = `${block.integration_name}/${out}`;
+  }
+  const dur = formatToolDuration(block.start_timestamp, block.stop_timestamp);
+  if (dur) out = `${out} [${dur}]`;
+  return out;
+}
+
 export function toolCallSummary(name: string, input: Record<string, unknown>): string {
   if (name === "conversation_search") {
     return `conversation_search: "${flattenWhitespace((input.query as string) || "?")}"`;
@@ -293,6 +321,36 @@ export function collectImages(messages: Message[]): ImageMeta[] {
   return images;
 }
 
+/**
+ * Walk the message tree from `current_leaf_message_uuid` up via `parent_message_uuid`
+ * and return only that lineage, in created order. `chat_messages` from the conversation
+ * API includes every branch the user ever explored (edit-and-retry), not just the active
+ * one, so rendering the array as-is interleaves abandoned forks with the live thread.
+ *
+ * Falls back to returning the full array unchanged when the server didn't tell us the
+ * leaf, or when the leaf isn't in the array — preferring "render everything" over
+ * "render nothing" if the assumption breaks.
+ */
+export function selectActiveLineage(data: ConversationData): Message[] {
+  const all = data.chat_messages || [];
+  const leafId = data.current_leaf_message_uuid;
+  if (!leafId) return all;
+  const byUuid = new Map<string, Message>();
+  for (const m of all) byUuid.set(m.uuid, m);
+  if (!byUuid.has(leafId)) return all;
+
+  const reversed: Message[] = [];
+  const visited = new Set<string>();
+  let cur: string | null | undefined = leafId;
+  while (cur && byUuid.has(cur) && !visited.has(cur)) {
+    visited.add(cur);
+    const m = byUuid.get(cur)!;
+    reversed.push(m);
+    cur = m.parent_message_uuid ?? undefined;
+  }
+  return reversed.reverse();
+}
+
 export function parseConversationId(urlOrId: string): string | null {
   const UUID_RE = /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/;
   const normalized = urlOrId.toLowerCase().trim();
@@ -308,15 +366,21 @@ export function parseConversationId(urlOrId: string): string | null {
 /** Tracks unique citation URLs and assigns sequential reference numbers. */
 export class CitationTracker {
   private urlToIndex = new Map<string, number>();
-  private entries: Array<{ index: number; title: string; url: string }> = [];
+  private entries: Array<{ index: number; title: string; url: string; origins: Set<string> }> = [];
 
-  /** Register a citation and return its 1-based reference number. */
-  add(url: string, title?: string): number {
+  /** Register a citation and return its 1-based reference number. The same URL cited
+   * by multiple tools accumulates all distinct `origin_tool_name` values. */
+  add(url: string, title?: string, originToolName?: string): number {
     const existing = this.urlToIndex.get(url);
-    if (existing !== undefined) return existing;
+    if (existing !== undefined) {
+      if (originToolName) this.entries[existing - 1].origins.add(originToolName);
+      return existing;
+    }
     const idx = this.entries.length + 1;
     this.urlToIndex.set(url, idx);
-    this.entries.push({ index: idx, title: title || url, url });
+    const origins = new Set<string>();
+    if (originToolName) origins.add(originToolName);
+    this.entries.push({ index: idx, title: title || url, url, origins });
     return idx;
   }
 
@@ -325,7 +389,10 @@ export class CitationTracker {
     if (this.entries.length === 0) return null;
     const lines = ["## Links", ""];
     for (const e of this.entries) {
-      lines.push(`${e.index}. [${e.title}](${e.url})`);
+      const origin = e.origins.size > 0
+        ? ` — via ${[...e.origins].sort().join(", ")}`
+        : "";
+      lines.push(`${e.index}. [${e.title}](${e.url})${origin}`);
     }
     return lines.join("\n");
   }
@@ -351,7 +418,7 @@ export function insertCitationLinks(
   const byStart = [...valid].sort((a, b) => a.start_index - b.start_index);
   const refNums = new Map<Citation, number>();
   for (const cit of byStart) {
-    refNums.set(cit, tracker.add(cit.url, cit.title));
+    refNums.set(cit, tracker.add(cit.url, cit.title, cit.origin_tool_name));
   }
 
   // Insert from end to start so indices stay valid
@@ -585,6 +652,10 @@ export function parseConversation(
       }
 
       let toolCalls: string[] = [];
+      // Map tool_use.id → index in `toolCalls` so we can pair a tool_result with its
+      // tool_use by tool_use_id instead of by adjacency. Falls back to "last call" when
+      // either id is missing.
+      let toolCallIndexById = new Map<string, number>();
       // Sandbox files touched by tool_use blocks in this message (insertion order, deduped
       // by on-disk relativeWritePath so a single file referenced via multiple sandbox paths
       // — e.g. /home/claude/foo.md by create_file and /mnt/user-data/outputs/foo.md by
@@ -604,6 +675,7 @@ export function parseConversation(
         bodyLines.push(fmt.toolUseBlock(toolCalls));
         bodyLines.push("");
         toolCalls = [];
+        toolCallIndexById = new Map();
       };
 
       for (const block of blocks) {
@@ -619,7 +691,9 @@ export function parseConversation(
           bodyLines.push("");
         } else if (block.type === "tool_use" && options.includeToolCalls) {
           // Every tool_use is rendered as a callout entry — never replayed.
-          toolCalls.push(toolCallSummary(block.name!, block.input || {}));
+          const idx = toolCalls.length;
+          toolCalls.push(decorateToolCall(block, toolCallSummary(block.name!, block.input || {})));
+          if (block.id) toolCallIndexById.set(block.id, idx);
           // Collect any file paths the tool touched so we can link them.
           const input = block.input || {};
           if (typeof input.path === "string") linkPath(input.path);
@@ -638,10 +712,12 @@ export function parseConversation(
             }
           }
         } else if (block.type === "tool_result" && options.includeToolCalls) {
-          if (toolCalls.length > 0) {
-            const summary = toolResultSummary(block);
-            toolCalls[toolCalls.length - 1] += ` → ${summary}`;
-          }
+          if (toolCalls.length === 0) continue;
+          const summary = toolResultSummary(block);
+          const targetIdx =
+            (block.tool_use_id && toolCallIndexById.get(block.tool_use_id)) ??
+            toolCalls.length - 1;
+          toolCalls[targetIdx] += ` → ${summary}`;
         }
       }
 

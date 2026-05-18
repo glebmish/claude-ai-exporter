@@ -13,6 +13,7 @@ import {
   parseConversationId,
   toolCallSummary,
   toolResultSummary,
+  decorateToolCall,
   buildMarkdown,
   collectImages,
   parseConversation,
@@ -20,6 +21,7 @@ import {
   CitationTracker,
   insertCitationLinks,
   renderContent,
+  selectActiveLineage,
 } from "../packages/converter/index.ts";
 import {
   makeMinimalConversation,
@@ -315,6 +317,61 @@ describe("utility functions", () => {
       assert.ok(result.endsWith("…"));
     });
   });
+
+  describe("decorateToolCall", () => {
+    it("returns base summary unchanged when no integration or timestamps", () => {
+      assert.equal(decorateToolCall({ type: "tool_use" }, "web_search: \"q\""), "web_search: \"q\"");
+    });
+    it("prefixes integration_name with slash separator", () => {
+      assert.equal(
+        decorateToolCall({ type: "tool_use", integration_name: "linear" }, "get_issue: id=\"X\""),
+        "linear/get_issue: id=\"X\"",
+      );
+    });
+    it("appends sub-second duration as ms", () => {
+      assert.equal(
+        decorateToolCall(
+          { type: "tool_use", start_timestamp: "2026-01-15T10:00:00.000Z", stop_timestamp: "2026-01-15T10:00:00.120Z" },
+          "web_search: \"q\"",
+        ),
+        "web_search: \"q\" [120ms]",
+      );
+    });
+    it("appends multi-second duration as seconds with one decimal", () => {
+      assert.equal(
+        decorateToolCall(
+          { type: "tool_use", start_timestamp: "2026-01-15T10:00:00Z", stop_timestamp: "2026-01-15T10:00:03.400Z" },
+          "web_search: \"q\"",
+        ),
+        "web_search: \"q\" [3.4s]",
+      );
+    });
+    it("combines integration prefix and duration suffix", () => {
+      assert.equal(
+        decorateToolCall(
+          { type: "tool_use", integration_name: "linear", start_timestamp: "2026-01-15T10:00:00Z", stop_timestamp: "2026-01-15T10:00:00.050Z" },
+          "get_issue: id=\"X\"",
+        ),
+        "linear/get_issue: id=\"X\" [50ms]",
+      );
+    });
+    it("ignores negative or invalid durations", () => {
+      assert.equal(
+        decorateToolCall(
+          { type: "tool_use", start_timestamp: "2026-01-15T10:00:01Z", stop_timestamp: "2026-01-15T10:00:00Z" },
+          "x",
+        ),
+        "x",
+      );
+      assert.equal(
+        decorateToolCall(
+          { type: "tool_use", start_timestamp: "garbage", stop_timestamp: "also-garbage" },
+          "x",
+        ),
+        "x",
+      );
+    });
+  });
 });
 
 describe("buildMarkdown", () => {
@@ -448,6 +505,67 @@ describe("buildMarkdown", () => {
       const data = makeConversationWithTools();
       const { markdown } = buildMarkdown(data, { includeToolCalls: true });
       assert.ok(markdown.includes("→ Found 3 results"));
+    });
+
+    it("pairs tool_result with the matching tool_use by tool_use_id, not by adjacency", () => {
+      // Two tool_use blocks followed by their results in REVERSED order. Adjacency-based
+      // matching would attach result-B to call-A and result-A to call-B — wrong. Id-based
+      // matching attaches each result to its real caller.
+      const data = makeMinimalConversation({
+        chat_messages: [
+          {
+            uuid: "m1",
+            sender: "human",
+            content: [{ type: "text", text: "go" }],
+            created_at: "2026-01-15T10:00:00Z",
+          },
+          {
+            uuid: "m2",
+            sender: "assistant",
+            content: [
+              { type: "tool_use", id: "use-A", name: "web_search", input: { query: "alpha" } } as any,
+              { type: "tool_use", id: "use-B", name: "web_search", input: { query: "beta" } } as any,
+              { type: "tool_result", tool_use_id: "use-B", content: [{ text: "result for beta" }] } as any,
+              { type: "tool_result", tool_use_id: "use-A", content: [{ text: "result for alpha" }] } as any,
+            ],
+            created_at: "2026-01-15T10:00:30Z",
+          },
+        ],
+      });
+      const { markdown } = buildMarkdown(data, { includeToolCalls: true });
+      const alphaIdx = markdown.indexOf('web_search: "alpha"');
+      const betaIdx = markdown.indexOf('web_search: "beta"');
+      assert.ok(alphaIdx >= 0 && betaIdx >= 0, "both calls should render");
+      // The alpha line should carry the alpha result; the beta line should carry the beta result.
+      const alphaLine = markdown.slice(alphaIdx, markdown.indexOf("\n", alphaIdx));
+      const betaLine = markdown.slice(betaIdx, markdown.indexOf("\n", betaIdx));
+      assert.ok(alphaLine.includes("result for alpha"), `alpha line missing alpha result: ${alphaLine}`);
+      assert.ok(betaLine.includes("result for beta"), `beta line missing beta result: ${betaLine}`);
+    });
+
+    it("falls back to last-call adjacency when tool_use_id is absent", () => {
+      // No ids on either side → legacy behavior: append to the most recent call.
+      const data = makeMinimalConversation({
+        chat_messages: [
+          {
+            uuid: "m1",
+            sender: "human",
+            content: [{ type: "text", text: "go" }],
+            created_at: "2026-01-15T10:00:00Z",
+          },
+          {
+            uuid: "m2",
+            sender: "assistant",
+            content: [
+              { type: "tool_use", name: "web_search", input: { query: "alpha" } } as any,
+              { type: "tool_result", content: [{ text: "result A" }] } as any,
+            ],
+            created_at: "2026-01-15T10:00:30Z",
+          },
+        ],
+      });
+      const { markdown } = buildMarkdown(data, { includeToolCalls: true });
+      assert.ok(markdown.includes('web_search: "alpha" → result A'));
     });
   });
 
@@ -631,6 +749,58 @@ describe("collectImages", () => {
     const images = collectImages(data.chat_messages);
     assert.equal(images.length, 1);
     assert.equal(images[0].url, "https://cdn.example.com/photo.jpg");
+  });
+});
+
+describe("selectActiveLineage", () => {
+  const msg = (uuid: string, parent: string | null) => ({
+    uuid,
+    sender: "human" as const,
+    content: [],
+    created_at: "2026-01-15T10:00:00Z",
+    parent_message_uuid: parent,
+  });
+
+  it("returns the full array unchanged when current_leaf_message_uuid is absent", () => {
+    const data = {
+      uuid: "c", name: "x", model: "m", created_at: "", updated_at: "",
+      chat_messages: [msg("a", null), msg("b", "a")],
+    };
+    assert.equal(selectActiveLineage(data).length, 2);
+  });
+
+  it("returns the lineage from leaf to root in created order", () => {
+    const data = {
+      uuid: "c", name: "x", model: "m", created_at: "", updated_at: "",
+      chat_messages: [msg("a", null), msg("b", "a"), msg("c", "b")],
+      current_leaf_message_uuid: "c",
+    };
+    const out = selectActiveLineage(data);
+    assert.deepEqual(out.map(m => m.uuid), ["a", "b", "c"]);
+  });
+
+  it("drops abandoned branches", () => {
+    const data = {
+      uuid: "c", name: "x", model: "m", created_at: "", updated_at: "",
+      chat_messages: [
+        msg("a", null),
+        msg("b1", "a"),  // abandoned branch
+        msg("b2", "a"),  // active branch
+        msg("c", "b2"),
+      ],
+      current_leaf_message_uuid: "c",
+    };
+    const out = selectActiveLineage(data);
+    assert.deepEqual(out.map(m => m.uuid), ["a", "b2", "c"]);
+  });
+
+  it("falls back to full array when leaf is not in chat_messages", () => {
+    const data = {
+      uuid: "c", name: "x", model: "m", created_at: "", updated_at: "",
+      chat_messages: [msg("a", null), msg("b", "a")],
+      current_leaf_message_uuid: "missing",
+    };
+    assert.equal(selectActiveLineage(data).length, 2);
   });
 });
 
@@ -843,6 +1013,29 @@ describe("CitationTracker", () => {
   it("returns null when no citations", () => {
     const tracker = new CitationTracker();
     assert.equal(tracker.renderLinksSection(), null);
+  });
+
+  it("annotates links with origin_tool_name when provided", () => {
+    const tracker = new CitationTracker();
+    tracker.add("https://a.com", "A", "web_search");
+    const section = tracker.renderLinksSection()!;
+    assert.ok(section.includes("1. [A](https://a.com) — via web_search"), section);
+  });
+
+  it("accumulates distinct origins for the same URL cited by multiple tools", () => {
+    const tracker = new CitationTracker();
+    tracker.add("https://a.com", "A", "web_search");
+    tracker.add("https://a.com", "A", "web_fetch");
+    tracker.add("https://a.com", "A", "web_search");
+    const section = tracker.renderLinksSection()!;
+    assert.ok(section.includes("— via web_fetch, web_search"), section);
+  });
+
+  it("omits origin annotation when no origin_tool_name was ever provided", () => {
+    const tracker = new CitationTracker();
+    tracker.add("https://a.com", "A");
+    const section = tracker.renderLinksSection()!;
+    assert.equal(section.includes("— via"), false);
   });
 });
 
