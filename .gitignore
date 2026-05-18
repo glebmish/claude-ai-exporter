@@ -1,5 +1,11 @@
 node_modules/
 
+# OS junk
+.DS_Store
+
+# Credentials — npm publish auth belongs in ~/.npmrc or CI secrets
+.npmrc
+
 # Claude Code / agent tooling
 .agents/
 .claude/
