@@ -344,7 +344,7 @@ export function selectActiveLineage(data: ConversationData): Message[] {
   let cur: string | null | undefined = leafId;
   while (cur && byUuid.has(cur) && !visited.has(cur)) {
     visited.add(cur);
-    const m = byUuid.get(cur)!;
+    const m: Message = byUuid.get(cur)!;
     reversed.push(m);
     cur = m.parent_message_uuid ?? undefined;
   }
@@ -714,9 +714,8 @@ export function parseConversation(
         } else if (block.type === "tool_result" && options.includeToolCalls) {
           if (toolCalls.length === 0) continue;
           const summary = toolResultSummary(block);
-          const targetIdx =
-            (block.tool_use_id && toolCallIndexById.get(block.tool_use_id)) ??
-            toolCalls.length - 1;
+          const mappedIdx = block.tool_use_id ? toolCallIndexById.get(block.tool_use_id) : undefined;
+          const targetIdx = mappedIdx ?? toolCalls.length - 1;
           toolCalls[targetIdx] += ` → ${summary}`;
         }
       }

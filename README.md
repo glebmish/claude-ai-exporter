@@ -1,5 +1,7 @@
 # Claude AI Exporter
 
+[![CI](https://github.com/glebmish/claude-ai-exporter/actions/workflows/ci.yml/badge.svg)](https://github.com/glebmish/claude-ai-exporter/actions/workflows/ci.yml)
+
 Export Claude.ai conversations to Markdown straight into your Obsidian vault — or, if you prefer, via a CLI or a Chrome extension. Produces readable notes with artifacts, tool use, citations, and an optional AI-generated table of contents.
 
 <!--
