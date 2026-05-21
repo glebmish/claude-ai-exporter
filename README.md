@@ -7,7 +7,7 @@
 
 Export Claude.ai conversations to Markdown straight into your Obsidian vault — or, if you prefer, via a CLI or a Chrome extension. Produces readable notes with artifacts, tool use, citations, and an optional AI-generated table of contents.
 
-> **Demo:** _coming soon — GIF/video walkthrough of the Obsidian plugin._
+![Obsidian plugin demo](docs/demo.gif)
 
 ## Three ways to use it
 
