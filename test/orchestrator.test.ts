@@ -454,6 +454,55 @@ describe("runExport — refresh path", () => {
     assert.equal(await fs.exists("out/2026-01-15 Test Chat/old-stale.md"), false);
   });
 
+  it("dedupes image upload: prefers sandbox original, links markdown at uploads/<name>", async () => {
+    const fs = new InMemoryFs();
+    const conversation = {
+      ...baseConversation,
+      chat_messages: [
+        {
+          uuid: "m1",
+          sender: "human" as const,
+          content: [{ type: "text", text: "see photo" }],
+          created_at: "2026-01-15T10:00:00Z",
+          files: [{
+            file_kind: "image",
+            file_name: "photo.png",
+            preview_url: "https://example.com/preview/photo.png",
+          }],
+        },
+        ...baseConversation.chat_messages,
+      ],
+    };
+    const cdp = makeStubCdp({
+      conversation,
+      // If the preview path runs, this would produce a written file. We assert
+      // it does NOT — the sandbox original is preferred.
+      images: { "https://example.com/preview/photo.png": "data:image/png;base64,UFJFVklFVw==" },
+      sandboxFiles: [{
+        path: "/mnt/user-data/uploads/photo.png",
+        contentType: "image/png",
+        base64: Buffer.from("ORIGINAL").toString("base64"),
+        created_at: "2026-01-15T09:59:00Z",
+      }],
+    });
+    const result = await runExport(baseOpts, { fs, cdpOverride: cdp });
+
+    const files = fs.list();
+    assert.ok(
+      files.some((f) => f.endsWith("/uploads/photo.png")),
+      `expected uploads/photo.png on disk, got: ${files.join(", ")}`,
+    );
+    assert.ok(
+      !files.some((f) => /\/\d{2}_photo\.png$/.test(f)),
+      `expected no preview copy (NN_photo.png) on disk, got: ${files.join(", ")}`,
+    );
+    const note = await fs.readText("out/2026-01-15 Test Chat.md");
+    assert.ok(note !== null);
+    assert.ok(/uploads\/photo\.png/.test(note), `expected markdown to link uploads/photo.png, got:\n${note}`);
+    assert.ok(!/]\(?[^)]*\/\d{2}_photo\.png\)?/.test(note), "expected no NN_photo.png link in markdown");
+    assert.equal(result.imageCount, 1, "image should be counted once");
+  });
+
   it("case 15: image fetch returning null is skipped without failure", async () => {
     const fs = new InMemoryFs();
     const conversationWithImage = {

@@ -13,8 +13,13 @@ export async function fetchAllImages(
   messages: Message[],
   onStatus?: (msg: string) => void,
   signal?: AbortSignal,
+  skipNames?: Set<string>,
 ): Promise<ImageFile[]> {
-  const meta = collectImages(messages);
+  // Skipped images are user uploads also present in the sandbox listing as the
+  // original-quality file — fetching the downscaled preview here would
+  // duplicate bytes on disk that no link references. Caller is responsible for
+  // emitting the link to uploads/<name> instead.
+  const meta = collectImages(messages).filter((img) => !skipNames?.has(img.fileName));
   const out: ImageFile[] = [];
   let seqNum = 0;
 

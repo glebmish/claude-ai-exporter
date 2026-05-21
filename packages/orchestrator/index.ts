@@ -7,6 +7,7 @@ import {
   stripArchivePluginMarkers,
   replayResearchArtifacts,
   selectActiveLineage,
+  collectImages,
 } from "../converter/index.ts";
 import type { ConversationData, ConversationResult } from "../converter/index.ts";
 import { sanitizeForFilename } from "../converter/filename-template.ts";
@@ -142,25 +143,63 @@ function mergeResearchArtifacts(
   };
 }
 
+// Claude exposes user-uploaded images twice: as a downscaled preview on
+// `message.files[].preview_asset.url` and as the original-quality file in the
+// sandbox listing under /mnt/user-data/uploads/. Without dedup we'd write
+// both, but the markdown only links the preview, leaving the original as
+// orphan bytes. We prefer the original and route the link to uploads/<name>.
+function buildImageLinks(
+  messages: import("../converter/types.ts").Message[],
+  imageFiles: ImageFile[],
+  sandboxFiles: SandboxFileContent[],
+): { msgIndex: number; filename: string }[] {
+  const uploadBasenames = new Set<string>();
+  for (const f of sandboxFiles) {
+    if (f.kind === "upload") uploadBasenames.add(f.filename);
+  }
+  const links: { msgIndex: number; filename: string }[] = imageFiles.map((f) => ({
+    msgIndex: f.msgIndex,
+    filename: f.filename,
+  }));
+  for (const img of collectImages(messages)) {
+    if (uploadBasenames.has(img.fileName)) {
+      links.push({ msgIndex: img.msgIndex, filename: `uploads/${img.fileName}` });
+    }
+  }
+  return links;
+}
+
+function uploadBasenameSet(sandboxFiles: SandboxFileContent[]): Set<string> {
+  const s = new Set<string>();
+  for (const f of sandboxFiles) {
+    if (f.kind === "upload") s.add(f.filename);
+  }
+  return s;
+}
+
 async function fetchData(
   opts: ExportOptions,
   deps: ExportDeps,
-): Promise<{ data: ConversationData; imageFiles: ImageFile[]; sandboxFiles: SandboxFileContent[]; sandboxWarnings: string[] }> {
+): Promise<{ data: ConversationData; imageFiles: ImageFile[]; imageLinks: { msgIndex: number; filename: string }[]; sandboxFiles: SandboxFileContent[]; sandboxWarnings: string[] }> {
+  // Sandbox listing is fetched before images so we can pass the set of upload
+  // basenames into fetchAllImages and skip Claude's preview rendition for
+  // anything we already have as the original-quality file.
   if (deps.cdpOverride) {
     deps.onStatus?.("Fetching conversation...");
     const data = (await deps.cdpOverride.fetchConversation(opts.conversationId)) as ConversationData;
     data.chat_messages = selectActiveLineage(data);
     const messages = data.chat_messages;
-    const imageFiles = opts.includeImages
-      ? await fetchAllImages(deps.cdpOverride, messages, deps.onStatus, deps.signal)
-      : [];
     const wiggle = opts.includeArtifacts
       ? await fetchSandboxFiles(deps.cdpOverride, opts.conversationId, computeNamingContext(opts, data), { onStatus: deps.onStatus, signal: deps.signal })
       : { files: [], warnings: [] };
     const merged = opts.includeArtifacts
       ? mergeResearchArtifacts(opts, data, wiggle.files, wiggle.warnings)
       : { sandboxFiles: wiggle.files, sandboxWarnings: wiggle.warnings };
-    return { data, imageFiles, sandboxFiles: merged.sandboxFiles, sandboxWarnings: merged.sandboxWarnings };
+    const imageFiles = opts.includeImages
+      ? await fetchAllImages(deps.cdpOverride, messages, deps.onStatus, deps.signal, uploadBasenameSet(merged.sandboxFiles))
+      : [];
+    const imageLinks = buildImageLinks(messages, imageFiles, merged.sandboxFiles);
+    return { data, imageFiles, imageLinks, sandboxFiles: merged.sandboxFiles, sandboxWarnings: merged.sandboxWarnings };
   }
   return withCdp(opts, deps, async (cdp) => {
     if (deps.signal?.aborted) throw new Error("Cancelled");
@@ -168,16 +207,17 @@ async function fetchData(
     const data = (await cdp.fetchConversation(opts.conversationId)) as ConversationData;
     data.chat_messages = selectActiveLineage(data);
     const messages = data.chat_messages;
-    const imageFiles = opts.includeImages
-      ? await fetchAllImages(cdp, messages, deps.onStatus, deps.signal)
-      : [];
     const wiggle = opts.includeArtifacts
       ? await fetchSandboxFiles(cdp, opts.conversationId, computeNamingContext(opts, data), { onStatus: deps.onStatus, signal: deps.signal })
       : { files: [], warnings: [] };
     const merged = opts.includeArtifacts
       ? mergeResearchArtifacts(opts, data, wiggle.files, wiggle.warnings)
       : { sandboxFiles: wiggle.files, sandboxWarnings: wiggle.warnings };
-    return { data, imageFiles, sandboxFiles: merged.sandboxFiles, sandboxWarnings: merged.sandboxWarnings };
+    const imageFiles = opts.includeImages
+      ? await fetchAllImages(cdp, messages, deps.onStatus, deps.signal, uploadBasenameSet(merged.sandboxFiles))
+      : [];
+    const imageLinks = buildImageLinks(messages, imageFiles, merged.sandboxFiles);
+    return { data, imageFiles, imageLinks, sandboxFiles: merged.sandboxFiles, sandboxWarnings: merged.sandboxWarnings };
   });
 }
 
@@ -190,7 +230,7 @@ export async function runExport(opts: ExportOptions, deps: ExportDeps): Promise<
   }
 
   // Phase 1: fetch conversation + images + sandbox files
-  const { data, imageFiles, sandboxFiles, sandboxWarnings } = await fetchData(opts, deps);
+  const { data, imageFiles, imageLinks, sandboxFiles, sandboxWarnings } = await fetchData(opts, deps);
   if (deps.signal?.aborted) throw new Error("Cancelled");
 
   // Chrome is no longer needed past this point — let the caller release it
@@ -210,7 +250,7 @@ export async function runExport(opts: ExportOptions, deps: ExportDeps): Promise<
     },
     {
       conversationId: opts.conversationId,
-      imageFilenames: imageFiles.map((f) => ({ msgIndex: f.msgIndex, filename: f.filename })),
+      imageFilenames: imageLinks,
       sandboxFiles: sandboxFiles.map((f) => ({
         path: f.path,
         filename: f.filename,
@@ -320,7 +360,7 @@ export async function runExport(opts: ExportOptions, deps: ExportDeps): Promise<
     datedTitle: parsed.datedTitle,
     messageCount: parsed.messageCount,
     artifactCount: sandboxFiles.length,
-    imageCount: imageFiles.length,
+    imageCount: imageLinks.length,
     ...(previousMessageCount !== undefined ? { previousMessageCount } : {}),
     tocReused: decision.tocReused,
     tocRegenerated: decision.tocRegenerated,
