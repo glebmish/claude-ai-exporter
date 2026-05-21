@@ -1,6 +1,6 @@
 {
   "name": "claude-exporter",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Export Claude.ai conversations to Markdown via CLI, Chrome extension, or Obsidian plugin.",
   "type": "module",
   "license": "MIT",
