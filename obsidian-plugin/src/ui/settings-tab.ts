@@ -1,5 +1,15 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, PluginSettingTab, Setting, TFile, normalizePath } from "obsidian";
 import ClaudeExporterPlugin from "../main";
+
+function resolveTemplate(app: App, value: string): TFile | null {
+  if (!value) return null;
+  const norm = normalizePath(value);
+  let f = app.vault.getAbstractFileByPath(norm);
+  if (!(f instanceof TFile) && !norm.endsWith(".md")) {
+    f = app.vault.getAbstractFileByPath(`${norm}.md`);
+  }
+  return f instanceof TFile ? f : null;
+}
 
 export class ClaudeExporterSettingsTab extends PluginSettingTab {
   plugin: ClaudeExporterPlugin;
@@ -65,18 +75,32 @@ export class ClaudeExporterSettingsTab extends PluginSettingTab {
           })
       );
 
-    new Setting(containerEl)
+    const templateSetting = new Setting(containerEl)
       .setName("Note template")
-      .setDesc("Vault path to a Markdown template file (e.g. _templates/claude-chat.md). Leave blank to use the built-in format.")
-      .addText((text) =>
-        text
-          .setPlaceholder("_templates/claude-chat.md")
-          .setValue(this.plugin.settings.templatePath)
-          .onChange(async (value) => {
-            this.plugin.settings.templatePath = value;
-            await this.plugin.saveSettings();
-          })
+      .setDesc("Vault path to a Markdown template file (e.g. _templates/claude-chat.md). Leave blank to use the built-in format.");
+    const templateError = templateSetting.descEl.createEl("div", {
+      cls: "claude-exporter-setting-error",
+    });
+    templateError.style.color = "var(--text-error)";
+    templateError.style.marginTop = "4px";
+    const updateTemplateError = (value: string) => {
+      templateError.setText(
+        value && !resolveTemplate(this.app, value)
+          ? `Template not found: "${value}" (also tried "${value}.md")`
+          : ""
       );
+    };
+    updateTemplateError(this.plugin.settings.templatePath);
+    templateSetting.addText((text) =>
+      text
+        .setPlaceholder("_templates/claude-chat.md")
+        .setValue(this.plugin.settings.templatePath)
+        .onChange(async (value) => {
+          this.plugin.settings.templatePath = value;
+          updateTemplateError(value);
+          await this.plugin.saveSettings();
+        })
+    );
 
     new Setting(containerEl)
       .setName("Chrome path")

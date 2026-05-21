@@ -5,7 +5,11 @@ export class VaultFs implements FileSystem {
   constructor(private app: App) {}
 
   async readText(path: string): Promise<string | null> {
-    const f = this.app.vault.getAbstractFileByPath(normalizePath(path));
+    const norm = normalizePath(path);
+    let f = this.app.vault.getAbstractFileByPath(norm);
+    if (!(f instanceof TFile) && !norm.endsWith(".md")) {
+      f = this.app.vault.getAbstractFileByPath(`${norm}.md`);
+    }
     if (!(f instanceof TFile)) return null;
     return await this.app.vault.read(f);
   }
