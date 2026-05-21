@@ -329,8 +329,9 @@ under `packages/converter/`. If you need binary decoding, use `atob` /
 
 ### Sandbox indexing: path + basename + artifactId
 
-In `packages/converter/index.ts` around lines 460–485, sandbox files are
-indexed three ways:
+In `packages/converter/index.ts` (`sandboxFileByPath` / `sandboxFileByBasename`
+/ `sandboxFileByArtifactId` inside `renderContent`), sandbox files are indexed
+three ways:
 
 ```ts
 const sandboxFileByPath = new Map<string, SandboxEntry>();
@@ -406,11 +407,15 @@ intentionally not a `StageError`; the CLI checks for the literal in
 ### AbortSignal
 
 The orchestrator checks `deps.signal?.aborted` at phase boundaries and
-inside long-running loops (image fetch, sandbox download). The CLI hooks
-`SIGINT` → `ac.abort()`. The Obsidian plugin has Cancel buttons on the
-export modal and refresh-all modal that abort the same controller. The
-Chrome extension has no abort — operations are short enough not to need
-one.
+inside long-running loops (image fetch, sandbox download). Polling
+sleeps go through `abortableSleep` (`packages/chrome/cdp.ts`) so cancel
+unblocks immediately rather than waiting up to the next poll tick.
+`CdpClient.navigateTo` also accepts the signal and rejects with
+`"Cancelled"` instead of waiting up to 30 s for `Page.loadEventFired`.
+The CLI hooks `SIGINT` → `ac.abort()`. The Obsidian plugin has Cancel
+buttons on the export modal and refresh-all modal that abort the same
+controller. The Chrome extension has no abort — operations are short
+enough not to need one.
 
 ### In-progress marker
 

@@ -123,9 +123,12 @@ simple prefix check on `/mnt/user-data/uploads/`; anything else is an
 
 The kind affects three things:
 
-- **Filename**: uploads keep their original basename; artifacts run
+- **Filename**: uploads keep their original basename — routed through
+  `sanitizeUploadBasename` to strip `..`/`/`/`\` so a hostile sandbox
+  response can't escape the attachments directory; artifacts run
   through the user's `artifactNameTemplate` (default
-  `{{seqNum}} {{title}}`) (source — `computeFilename`).
+  `{{seqNum}} {{title}}`) (source — `computeFilename`,
+  `sanitizeUploadBasename` in `packages/orchestrator/sandbox.ts`).
 - **On-disk path**: uploads land under `<attachmentsDir>/uploads/`;
   artifacts land directly under `<attachmentsDir>/` (source —
   `relativeWritePathFor`).
@@ -138,10 +141,10 @@ The kind affects three things:
 
 Wiggle does not list anything under `/home/claude/...`, but Claude's
 tool calls (`create_file`, `view`, `str_replace`) can reference the
-*same* files via that path (source —
-`packages/converter/index.ts:464–467`). This is why the converter
-indexes sandbox files by basename in addition to path: when a
-`tool_use` block says
+*same* files via that path (source — `sandboxFileByBasename` in
+`packages/converter/index.ts`, with the comment explaining the
+basename fallback). This is why the converter indexes sandbox files
+by basename in addition to path: when a `tool_use` block says
 `{ "command": "view", "path": "/home/claude/foo.md" }` and wiggle has
 listed the file as `/mnt/user-data/outputs/foo.md`, the basename
 fallback resolves the link.
