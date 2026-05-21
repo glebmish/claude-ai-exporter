@@ -14,7 +14,7 @@ export type {
   SandboxFileMetadata,
   SandboxFilePayload,
 } from "./types.ts";
-export { CdpClient } from "./cdp.ts";
+export { CdpClient, abortableSleep } from "./cdp.ts";
 export { default as log } from "./log.ts";
 
 // ---------------------------------------------------------------------------

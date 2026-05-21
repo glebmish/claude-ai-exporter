@@ -19,6 +19,7 @@ import {
   shutdownChrome,
   CdpClient,
   extractAuth,
+  abortableSleep,
 } from "../chrome/index.ts";
 import { fetchAllImages, decodeDataUrl } from "./images.ts";
 import type { ImageFile } from "./images.ts";
@@ -96,14 +97,14 @@ async function withCdp<T>(
     await waitForReady({ port, signal: deps.signal });
     const cdp = await CdpClient.connect(port);
     try {
-      if (!alreadyRunning) await cdp.navigateTo(chatUrl);
+      if (!alreadyRunning) await cdp.navigateTo(chatUrl, 30000, deps.signal);
       // Wait for login
       while (true) {
         if (deps.signal?.aborted) throw new Error("Cancelled");
         const cookies = await cdp.getCookies("claude.ai");
         if (extractAuth(cookies)) break;
         deps.onStatus?.("Waiting for login in Chrome window...");
-        await new Promise((r) => setTimeout(r, 2000));
+        await abortableSleep(2000, deps.signal);
       }
       return await fn(cdp);
     } finally {

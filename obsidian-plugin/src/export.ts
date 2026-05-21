@@ -4,7 +4,7 @@ import type { ExportOptions } from "../../packages/orchestrator/index.ts";
 import { VaultFs } from "./fs-vault.ts";
 import {
   findChrome, isAlreadyRunning, launchChrome, waitForReady,
-  CdpClient, extractAuth, log, shutdownChrome,
+  CdpClient, extractAuth, log, shutdownChrome, abortableSleep,
 } from "../../packages/chrome/index.ts";
 import { parseConversationId } from "../../packages/converter/index.ts";
 
@@ -148,7 +148,7 @@ export async function browseAndPick(
       hasAuth = !!extractAuth(cookies);
       if (!hasAuth) {
         onStatus("Log in to Claude in the browser...");
-        await new Promise((r) => setTimeout(r, 1000));
+        await abortableSleep(1000, signal);
       }
     }
 
@@ -158,7 +158,7 @@ export async function browseAndPick(
       const url = (await cdp.evaluate("window.location.href")) as string;
       const id = parseConversationId(url || "");
       if (id) return { conversationId: id, cdp, child };
-      await new Promise((r) => setTimeout(r, 500));
+      await abortableSleep(500, signal);
     }
   } catch (err) {
     if (cdp) cdp.close();

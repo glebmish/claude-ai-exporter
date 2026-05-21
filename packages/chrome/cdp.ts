@@ -4,6 +4,18 @@ import type { Cookie, SandboxFileList, SandboxFilePayload } from "./types.ts";
 import log from "./log.ts";
 import { StageError } from "../orchestrator/errors.ts";
 
+export function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new Error("Cancelled"));
+    const onAbort = () => { clearTimeout(timer); reject(new Error("Cancelled")); };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 function httpGetJson(url: string): Promise<unknown> {
   return new Promise((resolve, reject) => {
     get(url, (res) => {
@@ -69,9 +81,13 @@ export class CdpClient {
     const targets = (await httpGetJson(`http://localhost:${port}/json`)) as Array<{
       webSocketDebuggerUrl: string;
       type: string;
+      url?: string;
     }>;
     log("CDP targets:", targets.map(t => t.type));
-    const page = targets.find((t) => t.type === "page");
+    const pages = targets.filter((t) => t.type === "page");
+    const page =
+      pages.find((t) => typeof t.url === "string" && t.url.startsWith("https://claude.ai/")) ??
+      pages[0];
     if (!page) throw new StageError("cdp", "No browser page found");
 
     const wsUrl = page.webSocketDebuggerUrl;
@@ -123,16 +139,26 @@ export class CdpClient {
     return reply.result.value;
   }
 
-  async navigateTo(url: string, timeoutMs = 30000): Promise<void> {
+  async navigateTo(url: string, timeoutMs = 30000, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) throw new Error("Cancelled");
     await this.send("Page.enable");
     await this.send("Page.navigate", { url });
 
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const cleanup = () => {
+        clearTimeout(timer);
         this.ws.off("message", handler);
+        this.ws.off("close", onClose);
+        this.ws.off("error", onError);
+        signal?.removeEventListener("abort", onAbort);
+      };
+      const onAbort = () => { cleanup(); reject(new Error("Cancelled")); };
+      const onClose = () => { cleanup(); reject(new Error("WebSocket closed")); };
+      const onError = () => { cleanup(); reject(new Error("WebSocket error")); };
+      const timer = setTimeout(() => {
+        cleanup();
         reject(new Error("Page load timed out"));
       }, timeoutMs);
-
       const handler = (raw: WebSocket.RawData) => {
         let msg: { method?: string };
         try {
@@ -142,12 +168,14 @@ export class CdpClient {
           return;
         }
         if (msg.method === "Page.loadEventFired") {
-          clearTimeout(timer);
-          this.ws.off("message", handler);
+          cleanup();
           resolve();
         }
       };
       this.ws.on("message", handler);
+      this.ws.once("close", onClose);
+      this.ws.once("error", onError);
+      signal?.addEventListener("abort", onAbort, { once: true });
     });
   }
 
